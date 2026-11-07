@@ -1,12 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
-import {
-  MOCK_PAYMENTS,
-  MOCK_ENROLLMENTS,
-  MOCK_USERS,
-  SEED_COURSES,
-  MOCK_QUIZ_RESULTS,
-  MOCK_SUBMISSIONS,
-} from '@/data';
+import { SEED_COURSES } from '@/data';
 
 /* ----------------------------- Types ------------------------------- */
 
@@ -89,6 +82,7 @@ export interface LMSMetrics {
   totalEnrollments: number;
   completions: number;
   totalRevenue: number;
+  revenueByCurrency: Record<string, number>;
   pendingGrading: number;
   avgQuizScore: number;
 }
@@ -96,19 +90,12 @@ export interface LMSMetrics {
 /* ---------------------------- Helpers ------------------------------ */
 
 const courseTitle = new Map(SEED_COURSES.map((c) => [c.id, c.title]));
-const courseLessons = new Map(SEED_COURSES.map((c) => [c.id, c.totalLessons || 0]));
-const sName = new Map(MOCK_USERS.filter((u) => u.role === 'student').map((u) => [u.id, u.name]));
-const sEmail = new Map(MOCK_USERS.filter((u) => u.role === 'student').map((u) => [u.id, u.email]));
-const sAvatar = new Map(MOCK_USERS.filter((u) => u.role === 'student').map((u) => [u.id, u.avatar]));
-
 export const getCourseTitle = (id: string) => courseTitle.get(id) ?? 'Course';
-export const studentName = (id: string) => sName.get(id) ?? 'Student';
-export const studentEmail = (id: string) => sEmail.get(id) ?? '';
-export const studentAvatar = (id: string) => sAvatar.get(id);
 
 const normStatus = (s?: string): PaymentStatus => {
   const st = (s || 'pending').toLowerCase();
-  if (st === 'successful' || st === 'processing') return 'completed';
+  if (st === 'successful' || st === 'completed') return 'completed';
+  if (st === 'processing') return 'pending';
   if (st === 'refunded') return 'refunded';
   if (st === 'failed' || st === 'cancelled') return 'failed';
   return 'pending';
@@ -120,43 +107,58 @@ const normEnroll = (s?: string): EnrollmentStatus => {
   return 'active';
 };
 
-const inDateRange = (iso: string, from?: string, to?: string) => {
-  const t = new Date(iso).getTime();
-  if (from && t < new Date(from).getTime()) return false;
-  if (to && t > new Date(to).getTime() + 86399999) return false;
-  return true;
-};
-
-const matchesQuery = (...vals: string[]) => (q?: string) => {
-  const sq = q?.trim().toLowerCase();
-  if (!sq) return true;
-  return vals.some((v) => v.toLowerCase().includes(sq));
+const matchesQuery = (query: string | undefined, ...values: string[]) => {
+  const normalized = query?.trim().toLowerCase();
+  return !normalized || values.some((value) => value.toLowerCase().includes(normalized));
 };
 
 /* ---------------------------- Payments ----------------------------- */
 
 export async function fetchAdminPayments(filters: PaymentFilters = {}): Promise<AdminPayment[]> {
-  try {
-    const q = supabase
-      .from('payments')
-      .select('*, profiles!payments_user_id_fkey(full_name, email)')
-      .order('created_at', { ascending: false })
-      .limit(400);
-    if (filters.dateFrom) q.gte('created_at', filters.dateFrom);
-    if (filters.dateTo) q.lte('created_at', filters.dateTo);
-    if (filters.courseId && filters.courseId !== 'all') q.eq('course_id', filters.courseId);
-    if (filters.status && filters.status !== 'all') q.eq('status', filters.status);
-    const { data, error } = await q;
-    if (error) throw error;
-    if (!data || data.length === 0) throw new Error('no rows');
-    const match = matchesQuery(filters.studentQuery || '');
-    return data.map((r: any): AdminPayment => ({
+  const query = supabase
+    .from('payments')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(400);
+  if (filters.dateFrom) query.gte('created_at', filters.dateFrom);
+  if (filters.dateTo) query.lte('created_at', filters.dateTo);
+  if (filters.courseId && filters.courseId !== 'all') query.eq('course_id', filters.courseId);
+  if (filters.status === 'completed') query.in('status', ['completed', 'successful']);
+  else if (filters.status === 'pending') query.in('status', ['pending', 'processing']);
+  else if (filters.status === 'failed') query.in('status', ['failed', 'cancelled']);
+  else if (filters.status && filters.status !== 'all') query.eq('status', filters.status);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  const rows = data || [];
+  if (rows.length === 0) return [];
+
+  const userIds = [...new Set(rows.map((row: any) => row.user_id).filter(Boolean))];
+  const courseIds = [...new Set(rows.map((row: any) => row.course_id).filter(Boolean))];
+  const [profilesResult, coursesResult] = await Promise.all([
+    userIds.length
+      ? supabase.from('profiles').select('user_id,full_name,email').in('user_id', userIds)
+      : Promise.resolve({ data: [], error: null }),
+    courseIds.length
+      ? supabase.from('courses').select('id,title').in('id', courseIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (profilesResult.error) throw profilesResult.error;
+  if (coursesResult.error) throw coursesResult.error;
+
+  const profiles = new Map((profilesResult.data || []).map((p: any) => [p.user_id, p]));
+  const courses = new Map((coursesResult.data || []).map((c: any) => [c.id, c.title]));
+  const search = filters.studentQuery?.trim().toLowerCase();
+
+  return rows.map((r: any): AdminPayment => {
+    const profile = profiles.get(r.user_id) as any;
+    return {
       id: r.id,
       transactionRef: r.transaction_reference || r.transaction_id || r.id.slice(0, 8).toUpperCase(),
-      studentName: r.profiles?.full_name || studentName(r.user_id),
-      studentEmail: r.profiles?.email || studentEmail(r.user_id) || r.customer_email || '',
+      studentName: profile?.full_name || r.customer_email || 'Unknown student',
+      studentEmail: profile?.email || r.customer_email || '',
       courseId: r.course_id,
-      courseTitle: getCourseTitle(r.course_id),
+      courseTitle: courses.get(r.course_id) || 'Unknown course',
       amount: Number(r.amount),
       currency: r.currency || 'GHS',
       provider: r.provider || r.method || 'Online',
@@ -165,37 +167,8 @@ export async function fetchAdminPayments(filters: PaymentFilters = {}): Promise<
       refundReason: r.refund_reason || undefined,
       refundAmount: r.refund_amount != null ? Number(r.refund_amount) : undefined,
       refundedAt: r.refunded_at || undefined,
-    })).filter((p) =>
-      match(`${p.studentName} ${p.studentEmail} ${p.transactionRef}`));
-  } catch (err) {
-    console.warn('payments fallback', (err as Error).message);
-  }
-  return mockPayments(filters);
-}
-
-function mockPayments(filters: PaymentFilters): AdminPayment[] {
-  let rows = MOCK_PAYMENTS.map((p): AdminPayment => ({
-    id: p.id,
-    transactionRef: `TX-${p.id.replace('pay-', '').toUpperCase()}-${p.createdAt.slice(0, 10).replace(/-/g, '')}`,
-    studentName: studentName(p.userId),
-    studentEmail: studentEmail(p.userId),
-    courseId: p.courseId,
-    courseTitle: getCourseTitle(p.courseId),
-    amount: p.amount,
-    currency: p.currency,
-    provider: p.method === 'credit_card' ? 'Card' : p.method === 'paypal' ? 'PayPal' : p.method === 'bank_transfer' ? 'Bank transfer' : 'Online',
-    status: p.status,
-    createdAt: p.createdAt,
-    refundReason: p.status === 'refunded' ? 'Requested by student, duplicate purchase' : undefined,
-    refundAmount: p.status === 'refunded' ? p.amount : undefined,
-    refundedAt: p.status === 'refunded' ? '2025-04-12T09:00:00Z' : undefined,
-  }));
-  if (filters.status && filters.status !== 'all') rows = rows.filter((p) => p.status === filters.status);
-  if (filters.courseId && filters.courseId !== 'all') rows = rows.filter((p) => p.courseId === filters.courseId);
-  rows = rows.filter((p) => inDateRange(p.createdAt, filters.dateFrom, filters.dateTo));
-  const match = matchesQuery(filters.studentQuery || '');
-  return rows.filter((p) =>
-    match(`${p.studentName} ${p.studentEmail} ${p.transactionRef}`));
+    };
+  }).filter((p) => !search || `${p.studentName} ${p.studentEmail} ${p.transactionRef}`.toLowerCase().includes(search));
 }
 
 /**
@@ -208,9 +181,11 @@ export async function processPaymentRefund(
   policy: 'full' | 'partial',
   amount: number | null,
   reason: string,
-  adminUserId?: string
 ): Promise<{ ok: boolean; message: string }> {
   if (!reason.trim()) return { ok: false, message: 'A reason is required to process a refund' };
+  if (policy === 'partial' && (!Number.isFinite(amount) || (amount ?? 0) <= 0)) {
+    return { ok: false, message: 'A valid partial refund amount is required' };
+  }
   try {
     const { data, error } = await supabase.rpc('execute_payment_refund', {
       p_payment_id: paymentId,
@@ -218,202 +193,152 @@ export async function processPaymentRefund(
       p_amount: amount,
       p_reason: reason.trim(),
       p_revoke_access: policy === 'full',
-      p_acting_user_id: adminUserId || null,
     });
-    if (error) throw error;
+    if (error) return { ok: false, message: error.message || 'Refund operation failed' };
     const res = Array.isArray(data) ? data[0] : data;
-    if (res && res.ok === false) return { ok: false, message: res.message || 'Refund rejected' };
-    return { ok: true, message: res?.message || 'Refund processed and audited' };
-  } catch (err) {
-    console.warn('refund RPC failed, demo fallback', (err as Error).message);
-    try {
-      const { data: row } = await supabase.from('payments').select('*').eq('id', paymentId).maybeSingle();
-      if (row) {
-        await supabase.from('payments').update({ status: 'refunded' }).eq('id', paymentId);
-        await supabase.from('enrollments').update({ status: 'revoked' }).eq('payment_id', paymentId);
-        await supabase.from('audit_logs').insert({
-          action: 'payment_refunded',
-          entity_type: 'payment',
-          entity_id: paymentId,
-          old_values: { status: row.status },
-          new_values: { status: 'refunded', policy, reason, enrollment_revoked: policy === 'full' },
-        });
-      }
-    } catch (e2) {
-      console.warn('demo refund failed', (e2 as Error).message);
+    if (!res || res.ok !== true) {
+      return { ok: false, message: res?.message || 'Refund was not confirmed by the database' };
     }
+    return { ok: true, message: res.message || 'Refund processed and audited' };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : 'Refund operation failed' };
   }
-  return { ok: true, message: 'Refund recorded in demo mode (database pending)' };
 }
 
 /* --------------------------- Enrollments ---------------------------- */
 
 export async function fetchAdminEnrollments(filters: EnrollmentFilters = {}): Promise<AdminEnrollment[]> {
-  try {
-    const q = supabase
-      .from('enrollments')
-      .select('*, profiles!enrollments_user_id_fkey(full_name, email, avatar_url), courses!enrollments_course_id_fkey(title, total_lessons)')
-      .order('enrolled_at', { ascending: false })
-      .limit(400);
-    if (filters.courseId && filters.courseId !== 'all') q.eq('course_id', filters.courseId);
-    if (filters.status && filters.status !== 'all') q.eq('status', filters.status);
-    if (filters.dateFrom) q.gte('enrolled_at', filters.dateFrom);
-    if (filters.dateTo) q.lte('enrolled_at', filters.dateTo);
-    const { data, error } = await q;
-    if (error) throw error;
-    if (!data || data.length === 0) throw new Error('no rows');
-    const match = matchesQuery(filters.studentQuery || '');
-    return data.map((r: any): AdminEnrollment => {
-      const lessons = r.courses?.total_lessons || courseLessons.get(r.course_id) || 0;
-      const prog = Number(r.progress ?? 0);
-      return {
-        id: r.id,
-        studentName: r.profiles?.full_name || studentName(r.user_id),
-        studentEmail: r.profiles?.email || studentEmail(r.user_id),
-        studentAvatar: r.profiles?.avatar_url || studentAvatar(r.user_id),
-        courseId: r.course_id,
-        courseTitle: r.courses?.title || getCourseTitle(r.course_id),
-        enrolledAt: r.enrolled_at,
-        completedAt: r.completed_at || undefined,
-        status: normEnroll(r.status),
-        progress: prog,
-        totalLessons: lessons,
-        completedLessons: Math.round((prog / 100) * lessons),
-        certificateUrl: r.certificate_url || undefined,
-        paymentId: r.payment_id || undefined,
-      };
-    }).filter((e) => match(`${e.studentName} ${e.studentEmail}`));
-  } catch (err) {
-    console.warn('enrollments fallback', (err as Error).message);
-  }
-  return mockEnrollments(filters);
-}
+  const query = supabase
+    .from('enrollments')
+    .select('*')
+    .order('enrolled_at', { ascending: false })
+    .limit(400);
+  if (filters.courseId && filters.courseId !== 'all') query.eq('course_id', filters.courseId);
+  if (filters.status && filters.status !== 'all') query.eq('status', filters.status);
+  if (filters.dateFrom) query.gte('enrolled_at', filters.dateFrom);
+  if (filters.dateTo) query.lte('enrolled_at', filters.dateTo);
+  const { data, error } = await query;
+  if (error) throw error;
+  const rows = data || [];
+  if (rows.length === 0) return [];
 
-function mockEnrollments(filters: EnrollmentFilters): AdminEnrollment[] {
-  let rows = MOCK_ENROLLMENTS.map((e): AdminEnrollment => {
-    const lessons = courseLessons.get(e.courseId) || 0;
+  const userIds = [...new Set(rows.map((row: any) => row.user_id).filter(Boolean))];
+  const courseIds = [...new Set(rows.map((row: any) => row.course_id).filter(Boolean))];
+  const [profilesResult, coursesResult] = await Promise.all([
+    userIds.length
+      ? supabase.from('profiles').select('user_id,full_name,email,avatar_url').in('user_id', userIds)
+      : Promise.resolve({ data: [], error: null }),
+    courseIds.length
+      ? supabase.from('courses').select('id,title,total_lessons').in('id', courseIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (profilesResult.error) throw profilesResult.error;
+  if (coursesResult.error) throw coursesResult.error;
+
+  const profiles = new Map((profilesResult.data || []).map((p: any) => [p.user_id, p]));
+  const courses = new Map((coursesResult.data || []).map((c: any) => [c.id, c]));
+  const search = filters.studentQuery?.trim().toLowerCase();
+
+  return rows.map((r: any): AdminEnrollment => {
+    const profile = profiles.get(r.user_id) as any;
+    const course = courses.get(r.course_id) as any;
+    const lessons = Number(course?.total_lessons || 0);
+    const progress = Number(r.progress ?? 0);
     return {
-      id: e.id,
-      studentName: studentName(e.userId),
-      studentEmail: studentEmail(e.userId),
-      studentAvatar: studentAvatar(e.userId),
-      courseId: e.courseId,
-      courseTitle: getCourseTitle(e.courseId),
-      enrolledAt: e.enrolledAt,
-      completedAt: e.completedAt,
-      status: normEnroll(e.status),
-      progress: e.progress,
+      id: r.id,
+      studentName: profile?.full_name || profile?.email || 'Unknown student',
+      studentEmail: profile?.email || '',
+      studentAvatar: profile?.avatar_url || undefined,
+      courseId: r.course_id,
+      courseTitle: course?.title || 'Unknown course',
+      enrolledAt: r.enrolled_at,
+      completedAt: r.completed_at || undefined,
+      status: normEnroll(r.status),
+      progress,
       totalLessons: lessons,
-      completedLessons: Math.round((e.progress / 100) * lessons),
-      certificateUrl: e.certificateUrl,
-      paymentId: e.paymentId,
+      completedLessons: Math.round((progress / 100) * lessons),
+      certificateUrl: r.certificate_url || undefined,
+      paymentId: r.payment_id || undefined,
     };
-  });
-  if (filters.status && filters.status !== 'all') rows = rows.filter((x) => x.status === filters.status);
-  if (filters.courseId && filters.courseId !== 'all') rows = rows.filter((x) => x.courseId === filters.courseId);
-  rows = rows.filter((x) => inDateRange(x.enrolledAt, filters.dateFrom, filters.dateTo));
-  const match = matchesQuery(filters.studentQuery || '');
-  return rows.filter((x) => match(`${x.studentName} ${x.studentEmail}`));
+  }).filter((enrollment) => matchesQuery(search, enrollment.studentName, enrollment.studentEmail));
 }
 
 export async function setEnrollmentStatus(
   enrollmentId: string,
   status: EnrollmentStatus,
   reason: string,
-  adminUserId?: string
 ): Promise<{ ok: boolean; message: string }> {
+  if (!reason.trim()) return { ok: false, message: 'A reason is required to change enrollment status' };
   try {
     const { data, error } = await supabase.rpc('set_enrollment_status', {
       p_enrollment_id: enrollmentId,
       p_status: status,
-      p_reason: reason || null,
-      p_acting_user_id: adminUserId || null,
+      p_reason: reason.trim(),
     });
-    if (error) throw error;
+    if (error) return { ok: false, message: error.message || 'Enrollment status update failed' };
     const res = Array.isArray(data) ? data[0] : data;
-    return { ok: !!res?.ok, message: res?.message || 'Enrollment updated' };
-  } catch (err) {
-    console.warn('enrollment RPC failed, demo fallback', (err as Error).message);
-    try {
-      await supabase.from('enrollments').update({ status }).eq('id', enrollmentId);
-      await supabase.from('audit_logs').insert({
-        action: 'enrollment_status_change',
-        entity_type: 'enrollment',
-        entity_id: enrollmentId,
-        new_values: { status, reason: reason || null },
-      });
-    } catch (e2) {
-      console.warn('demo enrollment fallback failed', (e2 as Error).message);
+    if (!res || res.ok !== true) {
+      return { ok: false, message: res?.message || 'Enrollment status change was not confirmed' };
     }
+    return { ok: true, message: res.message || 'Enrollment updated' };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : 'Enrollment status update failed' };
   }
-  return { ok: true, message: 'Enrollment updated (demo mode)' };
 }
 
 /* ------------------------- LMS analytics ---------------------------- */
 
 export async function fetchLMSMetrics(): Promise<LMSMetrics> {
-  try {
-    const [payments, enrollments, courses, profiles, sub, quiz] = await Promise.all([
-      supabase.from('payments').select('status, amount'),
-      supabase.from('enrollments').select('status, progress'),
-      supabase.from('courses').select('status'),
-      supabase.from('profiles').select('role, status'),
-      supabase.from('assignment_submissions').select('status, score'),
-      supabase.from('quiz_results').select('score, total_score'),
-    ]);
-    if (payments.error || enrollments.error) throw payments.error || enrollments.error;
-    const payRows = payments.data || [];
-    const enrRows = enrollments.data || [];
-    const quizRows = quiz.data || [];
-    return {
-      totalStudents: profiles.data?.filter((p: any) => p.role !== 'admin').length || 0,
-      activeStudents: profiles.data?.filter((p: any) => p.role !== 'admin' && p.status === 'active').length || 0,
-      totalCourses: courses.data?.length || 0,
-      publishedCourses: courses.data?.filter((c: any) => c.status === 'published').length || 0,
-      totalEnrollments: enrRows.length,
-      completions: enrRows.filter((e: any) => e.status === 'completed' || Number(e.progress) >= 100).length,
-      totalRevenue: Math.round(payRows.filter((p: any) => p.status === 'completed' || p.status === 'successful').reduce((s: number, p: any) => s + Number(p.amount), 0) * 100) / 100,
-      pendingGrading: sub.data?.filter((s: any) => !s.score && s.status !== 'draft').length || 0,
-      avgQuizScore: quizRows.length ? Math.round((quizRows.reduce((s: number, r: any) => s + (Number(r.score) / Math.max(Number(r.total_score), 1)) * 100, 0) / quizRows.length) * 10) / 10 : 0,
-    };
-  } catch (err) {
-    console.warn('metrics fallback', (err as Error).message);
+  const [payments, enrollments, courses, profiles, submissions, quiz] = await Promise.all([
+    supabase.from('payments').select('status, amount, currency'),
+    supabase.from('enrollments').select('status, progress'),
+    supabase.from('courses').select('status'),
+    supabase.from('profiles').select('role, status'),
+    supabase.from('assignment_submissions').select('status, score'),
+    supabase.from('quiz_results').select('score, total_score'),
+  ]);
+  const failedQuery = [payments, enrollments, courses, profiles, submissions, quiz].find((result) => result.error);
+  if (failedQuery?.error) throw failedQuery.error;
+  const payRows = payments.data || [];
+  const enrollmentRows = enrollments.data || [];
+  const quizRows = quiz.data || [];
+  const revenueByCurrency: Record<string, number> = {};
+  for (const payment of payRows as any[]) {
+    if (payment.status !== 'completed' && payment.status !== 'successful') continue;
+    const currency = payment.currency || 'GHS';
+    revenueByCurrency[currency] = (revenueByCurrency[currency] || 0) + Number(payment.amount);
   }
-  const payments = MOCK_PAYMENTS.filter((p) => p.status === 'completed');
-  const quizScores = MOCK_QUIZ_RESULTS.map((r) => (r.score / r.total) * 100);
   return {
-    totalStudents: MOCK_USERS.filter((u) => u.role === 'student').length,
-    activeStudents: MOCK_USERS.filter((u) => u.role === 'student' && u.status !== 'suspended').length,
-    totalCourses: SEED_COURSES.length,
-    publishedCourses: SEED_COURSES.filter((c) => c.featured).length,
-    totalEnrollments: MOCK_ENROLLMENTS.length,
-    completions: MOCK_ENROLLMENTS.filter((e) => e.progress >= 100).length,
-    totalRevenue: Math.round(payments.reduce((s, p) => s + p.amount, 0) * 100) / 100,
-    pendingGrading: MOCK_SUBMISSIONS.filter((s) => s.status === 'late' || !s.score).length,
-    avgQuizScore: quizScores.length ? Math.round((quizScores.reduce((s, v) => s + v, 0) / quizScores.length) * 10) / 10 : 0,
+    totalStudents: profiles.data?.filter((p: any) => p.role === 'student').length || 0,
+    activeStudents: profiles.data?.filter((p: any) => p.role === 'student' && p.status === 'active').length || 0,
+    totalCourses: courses.data?.length || 0,
+    publishedCourses: courses.data?.filter((c: any) => c.status === 'published').length || 0,
+    totalEnrollments: enrollmentRows.length,
+    completions: enrollmentRows.filter((e: any) => e.status === 'completed' || Number(e.progress) >= 100).length,
+    totalRevenue: Math.round(payRows.filter((p: any) => p.status === 'completed' || p.status === 'successful').reduce((sum: number, p: any) => sum + Number(p.amount), 0) * 100) / 100,
+    revenueByCurrency: Object.fromEntries(Object.entries(revenueByCurrency).map(([currency, amount]) => [currency, Math.round(amount * 100) / 100])),
+    pendingGrading: submissions.data?.filter((s: any) => s.score == null && s.status !== 'draft').length || 0,
+    avgQuizScore: quizRows.length ? Math.round((quizRows.reduce((sum: number, r: any) => sum + (Number(r.score) / Math.max(Number(r.total_score), 1)) * 100, 0) / quizRows.length) * 10) / 10 : 0,
   };
 }
 
 export async function fetchRevenueReport(period: 'daily' | 'weekly' | 'monthly' | 'yearly'): Promise<RevenuePoint[]> {
-  try {
-    const { data, error } = await supabase.from('payments').select('amount, created_at, status').order('created_at', { ascending: true });
-    if (error) throw error;
-    if (!data || data.length === 0) throw new Error('no rows');
-    const buckets = new Map<string, RevenuePoint>();
-    for (const r of data as any[]) {
-      if (r.status !== 'completed' && r.status !== 'successful') continue;
-      const d = new Date(r.created_at);
-      const key = period === 'weekly' ? isoWeek(d) : period === 'yearly' ? `${d.getFullYear()}` : period === 'monthly' ? d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      const b = buckets.get(key) || { label: key, revenue: 0, count: 0 };
-      b.revenue += Number(r.amount);
-      b.count += 1;
-      buckets.set(key, b);
-    }
-    return [...buckets.values()].map((b) => ({ ...b, revenue: Math.round(b.revenue * 100) / 100 }));
-  } catch (err) {
-    console.warn('revenue fallback', (err as Error).message);
+  const { data, error } = await supabase
+    .from('payments')
+    .select('amount, created_at, status')
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  const buckets = new Map<string, RevenuePoint>();
+  for (const row of data || []) {
+    if (row.status !== 'completed' && row.status !== 'successful') continue;
+    const date = new Date(row.created_at);
+    const label = period === 'weekly' ? isoWeek(date) : period === 'yearly' ? `${date.getFullYear()}` : period === 'monthly' ? date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }) : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const point = buckets.get(label) || { label, revenue: 0, count: 0 };
+    point.revenue += Number(row.amount);
+    point.count += 1;
+    buckets.set(label, point);
   }
-  return mockRevenue(period);
+  return [...buckets.values()].map((point) => ({ ...point, revenue: Math.round(point.revenue * 100) / 100 }));
 }
 
 const isoWeek = (d: Date) => {
@@ -425,76 +350,40 @@ const isoWeek = (d: Date) => {
   return `${date.getUTCFullYear()}-W${weekNo}`;
 };
 
-function mockRevenue(period: 'daily' | 'weekly' | 'monthly' | 'yearly'): RevenuePoint[] {
-  const now = new Date();
-  const count = period === 'daily' ? 12 : period === 'weekly' ? 10 : period === 'monthly' ? 10 : 5;
-  const base = period === 'daily' ? 240 : period === 'weekly' ? 620 : period === 'monthly' ? 2400 : 14500;
-  const points: RevenuePoint[] = [];
-  for (let i = count - 1; i >= 0; i--) {
-    const d = new Date(now);
-    if (period === 'daily') d.setDate(d.getDate() - i * 3);
-    if (period === 'weekly') d.setDate(d.getDate() - i * 7);
-    if (period === 'monthly') d.setMonth(d.getMonth() - i);
-    if (period === 'yearly') d.setFullYear(d.getFullYear() - i);
-    const label = period === 'yearly' ? `${d.getFullYear()}` : period === 'monthly' ? d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }) : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const seed = ((i + 3) * 16807) % 2147483647;
-    const wave = Math.round(Math.sin(i / 1.6) * 0.28 * base);
-    const revenue = Math.max(120, Math.round((base + wave + (seed % base) * 0.32) * 100) / 100);
-    points.push({ label, revenue, count: Math.max(1, Math.round(revenue / 68)) });
-  }
-  return points;
-}
-
 export async function fetchCourseAnalytics(): Promise<CourseAnalyticsRow[]> {
-  try {
-    const [payments, enrollments, quiz] = await Promise.all([
-      supabase.from('payments').select('course_id, amount, status'),
-      supabase.from('enrollments').select('course_id, progress, status'),
-      supabase.from('quiz_results').select('course_id, score, total_score, passed'),
-    ]);
-    if (payments.error || enrollments.error) throw payments.error || enrollments.error;
-    const ids = new Set<string>();
-    payments.data?.forEach((p: any) => ids.add(p.course_id));
-    enrollments.data?.forEach((e: any) => ids.add(e.course_id));
-    quiz.data?.forEach((r: any) => ids.add(r.course_id));
-    return [...ids].map((cid) => {
-      const enrs = (enrollments.data || []).filter((e: any) => e.course_id === cid);
-      const pays = (payments.data || []).filter((p: any) => p.course_id === cid && (p.status === 'completed' || p.status === 'successful'));
-      const quizes = (quiz.data || []).filter((r: any) => r.course_id === cid);
-      const completed = enrs.filter((e: any) => e.status === 'completed' || Number(e.progress) >= 100).length;
-      const avgQ = quizes.length ? Math.round((quizes.reduce((s: number, r: any) => s + (Number(r.score) / Math.max(Number(r.total_score), 1)) * 100, 0) / quizes.length) * 10) / 10 : 0;
-      return {
-        courseId: cid,
-        title: getCourseTitle(cid),
-        enrollments: enrs.length || pays.length,
-        completionRate: enrs.length ? Math.round((completed / enrs.length) * 100) : 0,
-        avgProgress: enrs.length ? Math.round((enrs.reduce((s: number, e: any) => s + Number(e.progress), 0) / enrs.length) * 10) / 10 : 0,
-        avgQuizScore: avgQ,
-        submissions: 0,
-        passRate: quizes.length ? Math.round((quizes.filter((r: any) => r.passed).length / quizes.length) * 100) : 0,
-        revenue: Math.round(pays.reduce((s: number, p: any) => s + Number(p.amount), 0) * 100) / 100,
-      };
-    });
-  } catch (err) {
-    console.warn('course analytics fallback', (err as Error).message);
-  }
-  const ASSIGN_COURSE: Record<string, string> = { 'assign-1': 'course-1', 'assign-2': 'course-2' };
-  return SEED_COURSES.map((c) => {
-    const enrs = MOCK_ENROLLMENTS.filter((e) => e.courseId === c.id);
-    const pays = MOCK_PAYMENTS.filter((p) => p.courseId === c.id && p.status === 'completed');
-    const quizes = MOCK_QUIZ_RESULTS.filter((r) => r.quizId.includes(c.id.replace('course-', '')) || c.id === 'course-1' && r.quizId === 'quiz-1' || c.id === 'course-2' && r.quizId === 'quiz-2');
-    const completed = enrs.filter((e) => e.progress >= 100).length;
-    const avgQ = quizes.length ? Math.round((quizes.reduce((s, r) => s + (r.score / r.total) * 100, 0) / quizes.length) * 10) / 10 : 0;
+  const [courses, payments, enrollments, quizResults, assignments, submissions] = await Promise.all([
+    supabase.from('courses').select('id,title'),
+    supabase.from('payments').select('course_id,amount,status'),
+    supabase.from('enrollments').select('course_id,progress,status'),
+    supabase.from('quiz_results').select('course_id,score,total_score,passed'),
+    supabase.from('assignments').select('id,course_id'),
+    supabase.from('assignment_submissions').select('assignment_id'),
+  ]);
+  const failedQuery = [courses, payments, enrollments, quizResults, assignments, submissions].find((result) => result.error);
+  if (failedQuery?.error) throw failedQuery.error;
+
+  const titles = new Map((courses.data || []).map((course: any) => [course.id, course.title]));
+  const assignmentCourses = new Map((assignments.data || []).map((assignment: any) => [assignment.id, assignment.course_id]));
+  return (courses.data || []).map((course: any) => {
+    const courseEnrollments = (enrollments.data || []).filter((row: any) => row.course_id === course.id);
+    const paidRows = (payments.data || []).filter((row: any) => row.course_id === course.id && (row.status === 'completed' || row.status === 'successful'));
+    const courseQuizResults = (quizResults.data || []).filter((row: any) => row.course_id === course.id);
+    const courseSubmissions = (submissions.data || []).filter((row: any) => assignmentCourses.get(row.assignment_id) === course.id);
+    const completed = courseEnrollments.filter((row: any) => row.status === 'completed' || Number(row.progress) >= 100).length;
+    const averageQuizScore = courseQuizResults.length
+      ? Math.round((courseQuizResults.reduce((sum: number, row: any) => sum + (Number(row.score) / Math.max(Number(row.total_score), 1)) * 100, 0) / courseQuizResults.length) * 10) / 10
+      : 0;
+
     return {
-      courseId: c.id,
-      title: c.title,
-      enrollments: enrs.length,
-      completionRate: enrs.length ? Math.round((completed / enrs.length) * 100) : 0,
-      avgProgress: enrs.length ? Math.round((enrs.reduce((s, e) => s + e.progress, 0) / enrs.length) * 10) / 10 : 0,
-      avgQuizScore: avgQ,
-      submissions: MOCK_SUBMISSIONS.filter((s) => ASSIGN_COURSE[s.assignmentId] === c.id).length,
-      passRate: quizes.length ? Math.round((quizes.filter((r) => r.passed).length / quizes.length) * 100) : 0,
-      revenue: Math.round(pays.reduce((s, p) => s + p.amount, 0) * 100) / 100,
+      courseId: course.id,
+      title: titles.get(course.id) || 'Unknown course',
+      enrollments: courseEnrollments.length,
+      completionRate: courseEnrollments.length ? Math.round((completed / courseEnrollments.length) * 100) : 0,
+      avgProgress: courseEnrollments.length ? Math.round((courseEnrollments.reduce((sum: number, row: any) => sum + Number(row.progress || 0), 0) / courseEnrollments.length) * 10) / 10 : 0,
+      avgQuizScore: averageQuizScore,
+      submissions: courseSubmissions.length,
+      passRate: courseQuizResults.length ? Math.round((courseQuizResults.filter((row: any) => row.passed).length / courseQuizResults.length) * 100) : 0,
+      revenue: Math.round(paidRows.reduce((sum: number, row: any) => sum + Number(row.amount), 0) * 100) / 100,
     };
   });
 }

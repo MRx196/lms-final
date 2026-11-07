@@ -1,4 +1,4 @@
-import { Link, useParams, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   CheckCircle, XCircle, ArrowLeft, ArrowRight, Clock, PlayCircle, Certificate, Trophy,
@@ -7,7 +7,7 @@ import {
 } from '@phosphor-icons/react';
 import { ROUTES } from '@/constants/navigation';
 import { getPublishedCourses } from '@/services/courseService';
-import { getGateway, processPostPaymentEnrollment } from '@/services/paymentService';
+import { PAYMENT_CHECKOUT_DISABLED_MESSAGE, PAYMENT_CHECKOUT_ENABLED } from '@/services/paymentService';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -80,66 +80,7 @@ export function CheckoutPage() {
   };
 
   const handlePayment = async () => {
-    if (!course || !courseId) return;
-    if (!userEmail.trim() || !fullName.trim()) {
-      toast.error('Please provide your full name and email');
-      return;
-    }
-    if (!isLoggedIn && password.length < 6) {
-      toast.error('Create a password of at least 6 characters to access your course later');
-      return;
-    }
-    setProcessing(true);
-
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const email = user?.email || userEmail.trim();
-      const name = fullName.trim();
-
-      // Payment-record creation is delegated to the gateway: MockGateway
-      // persists it for the idempotency pipeline, and Paystack persists it at
-      // verification time. processPostPaymentEnrollment reconciles the record
-      // idempotently on the success page.
-      const gateway = getGateway();
-      const result = await gateway.initializePayment({
-        amount: Number(course.price),
-        currency: course.currency || 'GHS',
-        email,
-        courseId,
-        userId: user?.id || '',
-        metadata: { guest_email: email, guest_name: name, guest_phone: phone || undefined },
-      });
-
-      // Store checkout context so the confirmation page can finish the job
-      // without the buyer having to re-enter anything.
-      sessionStorage.setItem(
-        'nnh_checkout',
-        JSON.stringify({
-          courseId,
-          email,
-          fullName: name,
-          phone: phone || '',
-          password: isLoggedIn ? '' : password,
-          paymentId: null,
-          reference: result.reference,
-          method: selectedMethod,
-          amount: Number(course.price),
-          currency: course.currency || 'GHS',
-        }),
-      );
-
-      if (result.checkoutUrl) {
-        window.location.href = result.checkoutUrl;
-      } else {
-        // Mock / inline flow — redirect to success after short delay
-        setTimeout(() => {
-          navigate(`${ROUTES.paymentSuccess}?ref=${result.reference}`);
-        }, 1500);
-      }
-    } catch (err: any) {
-      toast.error(err.message || 'Payment failed');
-      setProcessing(false);
-    }
+    toast.error(PAYMENT_CHECKOUT_DISABLED_MESSAGE);
   };
 
   if (loading) {
@@ -356,12 +297,12 @@ export function CheckoutPage() {
 
                 <div className="flex items-center gap-2 text-xs text-zinc-500 mb-4">
                   <Lock size={14} className="text-emerald-500" />
-                  <span>Secure checkout powered by Paystack</span>
+                  <span>{PAYMENT_CHECKOUT_DISABLED_MESSAGE}</span>
                 </div>
 
                 <Button
                   onClick={handlePayment}
-                  disabled={processing || !userEmail || !fullName}
+                  disabled={!PAYMENT_CHECKOUT_ENABLED || processing || !userEmail || !fullName}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white h-11 gap-2"
                 >
                   {processing ? (
@@ -409,7 +350,7 @@ export function CheckoutPage() {
                 <div className="mt-6 space-y-3">
                   <div className="flex items-center gap-2 text-xs text-zinc-500">
                     <Lock size={14} className="text-emerald-500" />
-                    <span>Secure checkout powered by Paystack</span>
+                    <span>Payment verification is unavailable</span>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-zinc-500">
                     <Trophy size={14} className="text-emerald-500" />
@@ -434,144 +375,15 @@ export function CheckoutPage() {
 }
 
 export function PaymentSuccessPage() {
-  const { search } = useLocation();
-  const navigate = useNavigate();
-  const [verifying, setVerifying] = useState(true);
-  const [verified, setVerified] = useState(false);
-  const [alreadyProcessed, setAlreadyProcessed] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [course, setCourse] = useState<CourseRow | null>(null);
-  const ref = new URLSearchParams(search).get('ref') || '';
-
-  useEffect(() => {
-    async function verify() {
-      if (!ref) {
-        setVerifying(false);
-        return;
-      }
-      const ctx = sessionStorage.getItem('nnh_checkout');
-      let checkout: Record<string, string> = {};
-      if (ctx) {
-        try { checkout = JSON.parse(ctx) as Record<string, string>; } catch { /* ignore */ }
-      }
-      const session = await supabase.auth.getSession();
-      const email = session.data.session?.user?.email || checkout.email || '';
-      const fullName = checkout.fullName || '';
-      const password = checkout.password || '';
-
-      try {
-        const result = await processPostPaymentEnrollment({
-          courseId: checkout.courseId || '',
-          email,
-          fullName,
-          password: password || undefined,
-          phone: checkout.phone || undefined,
-          paymentId: checkout.paymentId || null,
-          reference: ref,
-          amount: checkout.amount ? Number(checkout.amount) : undefined,
-          currency: checkout.currency,
-        });
-        if (result.success) {
-          setVerified(true);
-          setAlreadyProcessed(!!result.alreadyProcessed);
-          if (checkout.courseId) {
-            const allCourses = await getPublishedCourses();
-            const found = allCourses.find((c) => c.id === checkout.courseId);
-            if (found) setCourse(found as unknown as CourseRow);
-          }
-          sessionStorage.removeItem('nnh_checkout');
-        }
-      } catch (err: any) {
-        setError(err.message || 'We could not confirm your enrollment. Please contact support.');
-        setVerifying(false);
-        return;
-      } finally {
-        setVerifying(false);
-      }
-    }
-    verify();
-  }, [ref]);
-
-  const goToCourses = () => navigate(ROUTES.studentCourses);
-
-  if (error) {
-    return (
-      <div className="min-h-[calc(100dvh-4rem)] flex items-center justify-center px-4">
-        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center max-w-md">
-          <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto mb-6">
-            <XCircle size={36} className="text-amber-500" weight="fill" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white mb-2">Almost there</h1>
-          <p className="text-zinc-500 dark:text-zinc-400 mb-6">{error}</p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Link to={ROUTES.login}>
-              <Button className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
-                <SignIn size={16} /> Sign in to continue <ArrowRight size={16} />
-              </Button>
-            </Link>
-            <Link to={ROUTES.courses}>
-              <Button variant="outline">Browse Courses</Button>
-            </Link>
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-[calc(100dvh-4rem)] flex items-center justify-center px-4 py-12">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="text-center max-w-lg w-full"
-      >
-        <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mx-auto mb-6">
-          {verifying ? (
-            <Spinner size={36} className="animate-spin text-emerald-600" />
-          ) : (
-            <CheckCircle size={36} className="text-emerald-600" weight="fill" />
-          )}
+    <div className="min-h-[calc(100dvh-4rem)] flex items-center justify-center px-4">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center max-w-md">
+        <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto mb-6">
+          <XCircle size={36} className="text-amber-500" weight="fill" />
         </div>
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white mb-2">
-          {verifying ? 'Verifying Payment...' : 'You are enrolled!'}
-        </h1>
-        <p className="text-zinc-500 dark:text-zinc-400 mb-8">
-          {verifying
-            ? 'We are confirming your payment and creating your account. Please wait...'
-            : alreadyProcessed
-            ? 'This purchase was already confirmed. Your course access is ready.'
-            : 'Thank you for your purchase. Your account and enrollment are ready.'}
-        </p>
-
-        {!verifying && course && (
-          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, ease: 'easeOut' as const }}>
-            <Card className="border-zinc-200 dark:border-zinc-800 text-left mb-8">
-              <CardContent className="p-4 flex items-center gap-4">
-                <div className="w-16 h-12 rounded-lg bg-zinc-100 dark:bg-zinc-800 overflow-hidden shrink-0">
-                  <img src={course.image || ''} alt={course.title} className="w-full h-full object-cover" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm text-zinc-900 dark:text-white truncate">{course.title}</p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 border-0 text-xs">Enrolled</Badge>
-                    <span className="text-xs text-zinc-400">{course.total_lessons || 0} lessons</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        )}
-
-        {!verifying && (
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Button onClick={goToCourses} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
-              Go to My Courses <ArrowRight size={16} />
-            </Button>
-            <Link to={ROUTES.studentDashboard}>
-              <Button variant="outline">Go to Dashboard</Button>
-            </Link>
-          </div>
-        )}
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-white mb-2">Payment not confirmed</h1>
+        <p className="text-zinc-500 dark:text-zinc-400 mb-6">{PAYMENT_CHECKOUT_DISABLED_MESSAGE}</p>
+        <Link to={ROUTES.courses}><Button variant="outline">Browse Courses</Button></Link>
       </motion.div>
     </div>
   );

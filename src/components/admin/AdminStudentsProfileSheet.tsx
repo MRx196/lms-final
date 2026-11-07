@@ -10,7 +10,7 @@ import { Progress } from '@/components/ui/progress';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getCourseTitle, getQuizTitle, getAssignmentTitle } from '@/services/adminStudentService';
+import { getQuizTitle, getAssignmentTitle } from '@/services/adminStudentService';
 import { StatusBadge, fmtDate, fmtMoney, initials } from './studentHelpers';
 import type { StudentDetail } from '@/services/adminStudentService';
 import type { User } from '@/types';
@@ -46,8 +46,10 @@ export function AdminStudentsProfileSheet({
   tab: string;
   onTabChange: (tab: string) => void;
 }) {
-  const [detailLoading, setDetailLoading] = useState(false);
   const s = student;
+  const totalPaid = s?.financialDataAvailable
+    ? Object.entries(s.totalSpentByCurrency).map(([currency, amount]) => fmtMoney(amount, currency)).join(' · ') || fmtMoney(0, 'GHS')
+    : 'Unavailable';
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -59,7 +61,7 @@ export function AdminStudentsProfileSheet({
           </SheetDescription>
         </SheetHeader>
 
-        {!s || detailLoading ? (
+        {!s ? (
           <div className="space-y-4 p-6">
             <div className="flex items-center gap-4">
               <Skeleton className="size-14 rounded-full" />
@@ -125,7 +127,7 @@ export function AdminStudentsProfileSheet({
               <SnapshotMetric label="Courses" value={s.enrollments.length} />
               <SnapshotMetric label="Avg. Quiz Score" value={`${s.avgScore}%`} />
               <SnapshotMetric label="Certificates" value={s.certificates.length} />
-              <SnapshotMetric label="Total Paid" value={fmtMoney(s.totalSpent, 'USD')} />
+              <SnapshotMetric label="Total Paid" value={totalPaid} />
             </div>
 
             <Tabs value={tab} onValueChange={onTabChange}>
@@ -139,13 +141,13 @@ export function AdminStudentsProfileSheet({
 
               <TabsContent value="courses" className="mt-4 space-y-3">
                 {s.enrollments.length === 0 ? (
-                  <CheckCard icon={BookOpen} title="No enrollments" note="This student has not enrolled in any courses." />
+                  <CheckCard icon={BookOpen} title={s.financialDataAvailable ? 'No enrollments' : 'Enrollment data unavailable'} note={s.financialDataAvailable ? 'This student has not enrolled in any courses.' : 'No matching database profile was found for this record.'} />
                 ) : s.enrollments.map((enr) => {
                   const done = enr.progress >= 100;
                   return (
                     <div key={enr.id} className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-medium text-zinc-900 dark:text-white">{getCourseTitle(enr.courseId)}</p>
+                        <p className="text-sm font-medium text-zinc-900 dark:text-white">{enr.courseTitle}</p>
                         {done ? (
                           <Badge className="gap-1 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-400">
                             <CheckCircle className="size-3.5" /> Completed
@@ -167,11 +169,11 @@ export function AdminStudentsProfileSheet({
 
               <TabsContent value="payments" className="mt-4 space-y-3">
                 {s.payments.length === 0 ? (
-                  <CheckCard icon={CurrencyCircleDollar} title="No payments" note="No payment transactions recorded for this student." />
+                  <CheckCard icon={CurrencyCircleDollar} title={s.financialDataAvailable ? 'No payments' : 'Payment data unavailable'} note={s.financialDataAvailable ? 'No payment transactions recorded for this student.' : 'No matching database profile was found for this record.'} />
                 ) : s.payments.map((p) => (
                   <div key={p.id} className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-zinc-900 dark:text-white">{getCourseTitle(p.courseId)}</p>
+                      <p className="text-sm font-medium text-zinc-900 dark:text-white">{p.courseTitle}</p>
                       <p className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-400 dark:text-zinc-500">
                         <Wallet className="size-3.5" /> {p.method.replace('_', ' ')} · {fmtDate(p.createdAt)}
                       </p>

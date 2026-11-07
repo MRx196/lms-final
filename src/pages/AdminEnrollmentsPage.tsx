@@ -4,7 +4,7 @@ import {
   GraduationCap, CheckCircle, ChartLineUp, MagnifyingGlass, Funnel,
   Prohibit, ArrowCounterClockwise, UserCircle, Certificate, Spinner,
 } from '@phosphor-icons/react';
-import { SEED_COURSES } from '@/data';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +17,6 @@ import {
   fetchAdminEnrollments, setEnrollmentStatus,
   type AdminEnrollment, type EnrollmentStatus, type EnrollmentFilters,
 } from '@/services/adminService';
-import { useAuth } from '@/contexts/AuthContext';
 
 const itemVariants = {
   hidden: { opacity: 0, y: 16 },
@@ -39,9 +38,10 @@ const statusStyles: Record<EnrollmentStatus, string> = {
 };
 
 export function AdminEnrollmentsPage() {
-  const { profile } = useAuth();
   const [rows, setRows] = useState<AdminEnrollment[]>([]);
+  const [courses, setCourses] = useState<{ id: string; title: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [acting, setActing] = useState(false);
   const [target, setTarget] = useState<AdminEnrollment | null>(null);
   const [actionStatus, setActionStatus] = useState<EnrollmentStatus>('revoked');
@@ -50,14 +50,29 @@ export function AdminEnrollmentsPage() {
 
   const load = async (f: EnrollmentFilters) => {
     setLoading(true);
+    setError(null);
     try {
       setRows(await fetchAdminEnrollments(f));
     } catch (err: any) {
-      toast.error(err.message || 'Failed to load enrollments');
+      setRows([]);
+      setError(err.message || 'Failed to load enrollments');
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    let active = true;
+    supabase.from('courses').select('id,title').order('title').then(({ data, error: courseError }) => {
+      if (!active) return;
+      if (courseError) {
+        toast.error(courseError.message || 'Failed to load course filters');
+        return;
+      }
+      setCourses(data || []);
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => load(filters), 250);
@@ -82,7 +97,7 @@ export function AdminEnrollmentsPage() {
     if (!target) return;
     setActing(true);
     try {
-      const res = await setEnrollmentStatus(target.id, actionStatus, reason, profile?.id);
+      const res = await setEnrollmentStatus(target.id, actionStatus, reason);
       if (!res.ok) {
         toast.error(res.message);
         return;
@@ -108,7 +123,11 @@ export function AdminEnrollmentsPage() {
       </div>
 
       {/* Metrics */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[0, 1, 2].map((item) => <Card key={item} className="h-20 animate-pulse border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900" />)}
+        </div>
+      ) : !error && <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[
           { label: 'Active Enrollments', value: metrics.active, desc: 'Currently in progress', icon: GraduationCap, cls: 'text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30' },
           { label: 'Completed', value: metrics.completed, desc: 'Finished and certified', icon: CheckCircle, cls: 'text-cyan-600 bg-cyan-100 dark:bg-cyan-900/30' },
@@ -127,7 +146,7 @@ export function AdminEnrollmentsPage() {
             </CardContent>
           </Card>
         ))}
-      </div>
+      </div>}
 
       {/* Filters */}
       <Card className="border-zinc-200 dark:border-zinc-800">
@@ -164,8 +183,8 @@ export function AdminEnrollmentsPage() {
               onChange={(e) => setFilters({ ...filters, courseId: e.target.value })}
             >
               <option value="all">All courses</option>
-              {SEED_COURSES.map((c) => (
-                <option key={c.id} value={c.id}>{c.title}</option>
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>{course.title}</option>
               ))}
             </select>
             <input
@@ -186,6 +205,13 @@ export function AdminEnrollmentsPage() {
               {[...Array(5)].map((_, i) => (
                 <div key={i} className="h-12 bg-zinc-100 dark:bg-zinc-800 rounded-lg animate-pulse" />
               ))}
+            </div>
+          ) : error ? (
+            <div className="p-12 text-center">
+              <GraduationCap size={36} className="mx-auto text-red-300 mb-3" />
+              <p className="text-sm font-medium text-red-600">Could not load enrollment records</p>
+              <p className="mt-1 text-xs text-zinc-500">{error}</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => void load(filters)}>Retry</Button>
             </div>
           ) : rows.length === 0 ? (
             <div className="p-12 text-center">

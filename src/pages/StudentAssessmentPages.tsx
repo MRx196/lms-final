@@ -346,7 +346,7 @@ export function StudentQuizRunner() {
       toast.error('Maximum attempts reached');
       return;
     }
-    const attempt = await AssessmentService.createAttempt(quizId, user.id);
+    const attempt = await AssessmentService.createAttempt(quizId);
     setAttemptId(attempt.id);
     setTimeLeft(quiz?.time_limit ? quiz.time_limit * 60 : 0);
     setStarted(true);
@@ -358,34 +358,15 @@ export function StudentQuizRunner() {
 
   const submitQuiz = async () => {
     if (!attemptId || !questions.length) return;
-    let score = 0;
-    let totalPoints = 0;
     const answerRecords: Array<{ question_id: string; selected_option_id: string | null }> = [];
 
     for (const q of questions) {
-      totalPoints += q.points;
       const selectedOptId = answers[q.id];
       answerRecords.push({ question_id: q.id, selected_option_id: selectedOptId });
-      if (selectedOptId) {
-        const opt = q.options?.find(o => o.id === selectedOptId);
-        if (opt?.is_correct) score += q.points;
-      }
     }
 
-    const passed = quiz ? (score / totalPoints) * 100 >= (quiz.passing_score ?? 70) : false;
-    const submitted = await AssessmentService.submitAttempt(attemptId, answerRecords, score, totalPoints, passed);
-
-    // Save to quiz_results
-    await supabase.from('quiz_results').insert({
-      user_id: submitted.user_id,
-      course_id: quiz?.course_id,
-      score,
-      total_score: totalPoints,
-      passed,
-      completed_at: new Date().toISOString(),
-    });
-
-    setResult({ score, total: totalPoints, passed });
+    const submitted = await AssessmentService.submitAttempt(attemptId, answerRecords);
+    setResult({ score: submitted.score, total: submitted.total_points, passed: !!submitted.passed });
     setCompleted(true);
   };
 
