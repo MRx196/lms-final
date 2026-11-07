@@ -155,10 +155,12 @@ export function StudentLessonPage() {
   const formatTime = (seconds: number) => `${Math.floor(seconds / 60)}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`;
 
   const downloadResource = async (resource: any) => {
-    if (!resource.storage_path) return;
+    const path = resource.storage_path || resource.url;
+    const bucket = resource.bucket_name === 'course-documents' ? 'course-documents' : 'lesson-resources';
+    if (!path) return;
     setDownloadingResource(resource.id);
     try {
-      const url = await getSignedUrl('lesson-resources', resource.storage_path, 3600);
+      const url = await getSignedUrl(bucket, path, 3600);
       const a = document.createElement('a'); a.href = url; a.download = resource.title || 'resource'; a.click();
     } catch (err: any) { toast.error(err.message || 'Download failed'); }
     setDownloadingResource(null);

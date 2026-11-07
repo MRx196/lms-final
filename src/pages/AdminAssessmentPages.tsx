@@ -45,6 +45,7 @@ export function AdminAssignmentsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [gradingOpen, setGradingOpen] = useState(false);
   const [selectedSubmission, setSelectedSubmission] = useState<any>(null);
+  const [submissionFileUrls, setSubmissionFileUrls] = useState<string[]>([]);
   const [gradeScore, setGradeScore] = useState('');
   const [gradeFeedback, setGradeFeedback] = useState('');
   const [saving, setSaving] = useState(false);
@@ -119,6 +120,14 @@ export function AdminAssignmentsPage() {
     setSelectedSubmission(sub);
     setGradeScore(String(sub.score ?? ''));
     setGradeFeedback(sub.feedback || '');
+    try {
+      setSubmissionFileUrls(await Promise.all(
+        (sub.file_urls || []).map((path: string) => AssessmentService.getSubmissionFileUrl(path)),
+      ));
+    } catch (err: any) {
+      setSubmissionFileUrls([]);
+      toast.error(err.message || 'Could not load submission attachments');
+    }
     setGradingOpen(true);
   };
 
@@ -300,11 +309,11 @@ export function AdminAssignmentsPage() {
                 </div>
               )}
 
-              {selectedSubmission.file_urls && selectedSubmission.file_urls.length > 0 && (
+              {submissionFileUrls.length > 0 && (
                 <div>
-                  <Label>Attachments ({selectedSubmission.file_urls.length})</Label>
+                  <Label>Attachments ({submissionFileUrls.length})</Label>
                   <div className="mt-1 space-y-2">
-                    {selectedSubmission.file_urls.map((url: string, i: number) => (
+                    {submissionFileUrls.map((url, i) => (
                       <a key={i} href={url} target="_blank" rel="noopener noreferrer"
                         className="flex items-center gap-2 p-2 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-sm text-emerald-600 hover:underline">
                         <Download size={16} />
@@ -392,7 +401,7 @@ export function AdminQuizzesPage() {
   const openBuilder = async (quiz: QuizRow) => {
     setSelectedQuiz(quiz);
     try {
-      const qs = await AssessmentService.getQuizQuestions(quiz.id);
+      const qs = await AssessmentService.getQuizQuestions(quiz.id, true);
       setQuestions(qs);
     } catch { /* ignore */ }
     setBuilderOpen(true);

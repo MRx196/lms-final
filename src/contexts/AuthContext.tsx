@@ -14,7 +14,7 @@ export interface UserProfile {
   email: string | null;
   phone: string | null;
   avatar_url: string | null;
-  role: 'student' | 'admin' | string;
+  role: 'student' | 'instructor' | 'admin' | 'super_admin' | string;
   status: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -25,7 +25,7 @@ interface AuthState {
   profile: UserProfile | null;
   loading: boolean;
   initialized: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<UserProfile>;
   signInWithDemo: (email: string, password: string, role: 'admin' | 'student') => Promise<void>;
   signUp: (email: string, password: string, fullName: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -65,43 +65,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    let profileRequest = 0;
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!mounted) return;
-      const u = session?.user ?? null;
+    const syncSession = async (u: User | null, event?: string) => {
+      const request = ++profileRequest;
       setUser(u);
-      if (u) {
-        fetchProfile(u.id).then((p) => {
-          if (mounted) setProfile(p);
-        });
+      if (!u) {
+        setProfile(null);
+        setLoading(false);
+        setInitialized(true);
+        return;
       }
+
+      setLoading(true);
+      const p = await fetchProfile(u.id);
+      if (!mounted || request !== profileRequest) return;
+      setProfile(p);
       setLoading(false);
       setInitialized(true);
+
+      if (event === 'SIGNED_IN' && p && (p.role === 'admin' || p.role === 'super_admin')) {
+        void recordAuditEvent({
+          action: 'login',
+          entityType: 'auth_session',
+          entityId: u.id,
+          severity: 'warning',
+          meta: { event, email: p.email ?? u.email ?? null, role: p.role },
+        }).catch(() => undefined);
+      }
+    };
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      void syncSession(session?.user ?? null);
+    }).catch(() => {
+      void syncSession(null);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!mounted) return;
-      const u = session?.user ?? null;
-      setUser(u);
-      if (u) {
-        fetchProfile(u.id).then((p) => {
-          if (mounted) setProfile(p);
-          // Phase 18: record login events for privilege-sensitive roles in the audit trail.
-          if (p && (p.role === 'admin' || p.role === 'super_admin')) {
-            void recordAuditEvent({
-              action: 'login',
-              entityType: 'auth_session',
-              entityId: u.id,
-              severity: 'warning',
-              meta: { event: event, email: p.email ?? u.email ?? null, role: p.role },
-            }).catch(() => undefined);
-          }
-        });
-      } else {
-        setProfile(null);
-      }
-      setLoading(false);
-      setInitialized(true);
+      queueMicrotask(() => {
+        if (mounted) void syncSession(session?.user ?? null, event);
+      });
     });
 
     return () => {
@@ -110,77 +113,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const signIn = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const signIn = useCallback(async (email: string, password: string): Promise<UserProfile> => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       toast.error(error.message);
       throw error;
     }
+    const p = data.user ? await fetchProfile(data.user.id) : null;
+    if (!data.user || !p || p.status !== 'active') {
+      await supabase.auth.signOut();
+      setUser(null);
+      setProfile(null);
+      throw new Error('This account is not active or does not have a valid profile.');
+    }
+    setUser(data.user);
+    setProfile(p);
+    return p;
   }, []);
 
-  // Resilient demo login: sign in, and if the account is missing, auto-provision
-  // it (auth user + profiles row with the requested role) so evaluators get a
-  // one-click entry into both the admin and student experiences.
   const signInWithDemo = useCallback(async (email: string, password: string, role: 'admin' | 'student') => {
-    const fullName = role === 'admin' ? 'Demo Administrator' : 'Demo Student';
+    if (!import.meta.env.DEV) {
+      throw new Error('Demo sign-in is available only in development.');
+    }
 
-    const provisionProfile = async (userId: string) => {
-      try {
-        await supabase.from('profiles').upsert(
-          {
-            user_id: userId,
-            email,
-            full_name: fullName,
-            username: email.split('@')[0],
-            role,
-            status: 'active',
-          },
-          { onConflict: 'user_id' },
-        );
-      } catch {
-        // profiles table may be absent or RLS-restricted; the auth session is still valid.
-      }
+    const p = await signIn(email, password);
+    const hasRequestedRole = role === 'admin'
+      ? p.role === 'admin' || p.role === 'super_admin'
+      : p.role === 'student';
+    if (!hasRequestedRole) {
+      await supabase.auth.signOut();
+      setUser(null);
+      setProfile(null);
+      throw new Error('The demo account does not have the requested role.');
     };
-
-    let { data, error } = await supabase.auth.signInWithPassword({ email, password });
-
-    if (error) {
-      const signUpRes = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { full_name: fullName } },
-      });
-      if (signUpRes.error) {
-        toast.error(signUpRes.error.message);
-        throw signUpRes.error;
-      }
-      const uid = signUpRes.data.user?.id;
-      if (uid) await provisionProfile(uid);
-
-      if (!signUpRes.data.session) {
-        // Email confirmation required: retry the password sign-in.
-        const retry = await supabase.auth.signInWithPassword({ email, password });
-        if (retry.error) {
-          toast.error(retry.error.message);
-          throw retry.error;
-        }
-        if (retry.data.user) await provisionProfile(retry.data.user.id);
-        data = retry.data;
-      } else {
-        data = signUpRes.data;
-      }
-    } else if (data.user) {
-      await provisionProfile(data.user.id);
-    }
-
-    if (data.user) {
-      const p = await fetchProfile(data.user.id);
-      setProfile(p);
-    }
-  }, []);
+  }, [signIn]);
 
   const signUp = useCallback(async (email: string, password: string, fullName: string) => {
-    const { data, error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signUp({
       email,
       password,
       options: { data: { full_name: fullName } },
@@ -189,21 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       toast.error(error.message);
       throw error;
     }
-    // Attempt to create profile record
-    if (data.user) {
-      try {
-        await supabase.from('profiles').insert({
-          user_id: data.user.id,
-          email,
-          full_name: fullName,
-          username: email.split('@')[0],
-          role: 'student' as any,
-          status: 'active' as any,
-        });
-      } catch {
-        // Profile table might not exist yet; that's ok
-      }
-    }
+    // The database trigger creates the profile and assigns the student role.
   }, []);
 
   const signOut = useCallback(async () => {

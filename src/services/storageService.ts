@@ -19,6 +19,22 @@ function getBucket(name: BucketName) {
   return supabase.storage.from(name);
 }
 
+function normalizeStoragePath(bucket: BucketName, pathOrUrl: string) {
+  const marker = `/${bucket}/`;
+  const markerIndex = pathOrUrl.lastIndexOf(marker);
+  const prefixedPath = pathOrUrl.startsWith(`${bucket}/`)
+    ? pathOrUrl.slice(bucket.length + 1)
+    : markerIndex >= 0
+      ? pathOrUrl.slice(markerIndex + marker.length)
+      : pathOrUrl;
+  const withoutQuery = prefixedPath.split(/[?#]/, 1)[0];
+  try {
+    return decodeURIComponent(withoutQuery);
+  } catch {
+    return withoutQuery;
+  }
+}
+
 function validateFile(file: File, bucket: BucketName): string | null {
   const config = STORAGE_BUCKETS[bucket];
   if (!config) return `Unknown bucket: ${bucket}`;
@@ -62,12 +78,13 @@ type CacheEntry = { url: string; expiresAt: number };
 const signedUrlCache = new Map<string, CacheEntry>();
 
 export async function getSignedUrl(bucket: BucketName, path: string, expiresIn = 3600) {
-  const key = `${bucket}:${path}`;
+  const objectPath = normalizeStoragePath(bucket, path);
+  const key = `${bucket}:${objectPath}`;
   const now = Date.now();
   const cached = signedUrlCache.get(key);
   if (cached && cached.expiresAt > now) return cached.url;
 
-  const { data, error } = await getBucket(bucket).createSignedUrl(path, expiresIn);
+  const { data, error } = await getBucket(bucket).createSignedUrl(objectPath, expiresIn);
   if (error) throw error;
 
   // Cache for a hair less than the real TTL so we never hand back an expired URL.

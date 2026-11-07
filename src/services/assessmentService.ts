@@ -66,7 +66,7 @@ export interface QuizOptionRow {
   id: string;
   question_id: string;
   text: string;
-  is_correct: boolean;
+  is_correct?: boolean;
   sort_order: number | null;
   created_at: string | null;
 }
@@ -287,10 +287,20 @@ export async function uploadFile(file: File, userId: string, assignmentId: strin
     .from('assignment-submissions')
     .upload(fileName, file, { upsert: true });
   if (error) throw error;
-  const { data: urlData } = await supabase.storage
+  return data.path;
+}
+
+export async function getSubmissionFileUrl(pathOrUrl: string) {
+  const marker = '/object/public/assignment-submissions/';
+  const urlPath = pathOrUrl.indexOf(marker);
+  const path = urlPath >= 0
+    ? decodeURIComponent(pathOrUrl.slice(urlPath + marker.length))
+    : pathOrUrl;
+  const { data, error } = await supabase.storage
     .from('assignment-submissions')
-    .getPublicUrl(fileName);
-  return urlData.publicUrl;
+    .createSignedUrl(path, 3600);
+  if (error) throw error;
+  return data.signedUrl;
 }
 
 /* ─── Quiz ─── */
@@ -340,10 +350,16 @@ export async function deleteQuiz(id: string) {
   if (error) throw error;
 }
 
-export async function getQuizQuestions(quizId: string) {
+export async function getQuizQuestions(quizId: string, includeAnswers = false) {
+  if (includeAnswers) {
+    const { data, error } = await supabase.rpc('admin_get_quiz_questions', { p_quiz_id: quizId });
+    if (error) throw error;
+    return (data || []) as QuizQuestionRow[];
+  }
+
   const { data, error } = await supabase
     .from('quiz_questions')
-    .select('*, options:quiz_options(*)')
+    .select('id, quiz_id, text, type, points, sort_order, created_at, options:quiz_options(id, question_id, text, sort_order, created_at)')
     .eq('quiz_id', quizId)
     .order('sort_order', { ascending: true });
   if (error) throw error;
@@ -361,7 +377,7 @@ export async function createQuizQuestion(data: {
   const { data: result, error } = await supabase
     .from('quiz_questions')
     .insert(data)
-    .select()
+    .select('id, quiz_id, text, type, points, sort_order, created_at')
     .single();
   if (error) throw error;
   return result as QuizQuestionRow;
@@ -375,7 +391,7 @@ export async function updateQuizQuestion(
     .from('quiz_questions')
     .update(data)
     .eq('id', questionId)
-    .select()
+    .select('id, quiz_id, text, type, points, sort_order, created_at')
     .single();
   if (error) throw error;
   return result as QuizQuestionRow;
@@ -395,7 +411,7 @@ export async function createQuizOption(data: {
   const { data: result, error } = await supabase
     .from('quiz_options')
     .insert(data)
-    .select()
+    .select('id, question_id, text, sort_order, created_at')
     .single();
   if (error) throw error;
   return result as QuizOptionRow;
@@ -409,7 +425,7 @@ export async function updateQuizOption(
     .from('quiz_options')
     .update(data)
     .eq('id', optionId)
-    .select()
+    .select('id, question_id, text, sort_order, created_at')
     .single();
   if (error) throw error;
   return result as QuizOptionRow;
@@ -432,12 +448,10 @@ export async function getAttemptCount(quizId: string, userId: string) {
   return count || 0;
 }
 
-export async function createAttempt(quizId: string, userId: string) {
-  const { data, error } = await supabase
-    .from('quiz_attempts')
-    .insert({ quiz_id: quizId, user_id: userId })
-    .select()
-    .single();
+export async function createAttempt(quizId: string) {
+  const { data, error } = await supabase.rpc('start_quiz_attempt', {
+    p_quiz_id: quizId,
+  });
   if (error) throw error;
   return data as QuizAttemptRow;
 }
@@ -445,27 +459,15 @@ export async function createAttempt(quizId: string, userId: string) {
 export async function submitAttempt(
   attemptId: string,
   answers: Array<{ question_id: string; selected_option_id: string | null }>,
-  score: number,
-  totalPoints: number,
-  passed: boolean,
 ) {
-  // Insert individual answers
-  for (const ans of answers) {
-    await supabase.from('quiz_answers').insert({
-      attempt_id: attemptId,
-      question_id: ans.question_id,
-      selected_option_id: ans.selected_option_id,
-    });
-  }
-
-  const { data, error } = await supabase
-    .from('quiz_attempts')
-    .update({ score, total_points: totalPoints, passed, completed_at: new Date().toISOString() })
-    .eq('id', attemptId)
-    .select()
-    .single();
+  const { data, error } = await supabase.rpc('submit_quiz_attempt', {
+    p_attempt_id: attemptId,
+    p_answers: answers,
+  });
   if (error) throw error;
-  return data as QuizAttemptRow;
+  const result = data as QuizAttemptRow & { error?: string };
+  if (result?.error) throw new Error(result.error);
+  return result;
 }
 
 export async function getUserAttempts(quizId: string, userId: string) {

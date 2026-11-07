@@ -20,7 +20,7 @@ const itemVariants = {
 
 type DemoRole = 'admin' | 'student';
 
-const DEMO_ACCOUNTS: Record<DemoRole, { email: string; password: string; label: string; path: string; Icon: typeof ShieldCheck }> = {
+const DEMO_ACCOUNTS: Record<DemoRole, { email: string; password: string; label: string; path: string; Icon: typeof ShieldCheck }> = import.meta.env.DEV ? {
   admin: {
     email: 'admin@demo.com',
     password: 'admin123456',
@@ -35,7 +35,7 @@ const DEMO_ACCOUNTS: Record<DemoRole, { email: string; password: string; label: 
     path: '/student/dashboard',
     Icon: Student,
   },
-};
+} : {} as Record<DemoRole, { email: string; password: string; label: string; path: string; Icon: typeof ShieldCheck }>;
 
 function CredentialRow({ label, value, copied, onCopy }: { label: string; value: string; copied: boolean; onCopy: () => void }) {
   return (
@@ -120,7 +120,7 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
-  const { signIn, signInWithDemo, profile } = useAuth();
+  const { signIn, signInWithDemo } = useAuth();
   const [busyRole, setBusyRole] = useState<DemoRole | null>(null);
 
   const handleQuickLogin = async (role: DemoRole) => {
@@ -144,9 +144,12 @@ export function LoginPage() {
     setError('');
     setSubmitting(true);
     try {
-      await signIn(email, password);
-      // Navigate based on profile role after auth state updates
-      const redirectTo = profile?.role === 'admin' ? ROUTES.adminDashboard : ROUTES.studentDashboard;
+      const signedInProfile = await signIn(email, password);
+      const redirectTo = signedInProfile.role === 'admin' || signedInProfile.role === 'super_admin'
+        ? ROUTES.adminDashboard
+        : signedInProfile.role === 'student'
+          ? ROUTES.studentDashboard
+          : ROUTES.home;
       navigate(redirectTo);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Invalid email or password');
@@ -252,7 +255,7 @@ export function LoginPage() {
           </Card>
         </motion.div>
 
-        <DemoCredentialsPanel onQuickLogin={handleQuickLogin} busy={busyRole} />
+        {import.meta.env.DEV && <DemoCredentialsPanel onQuickLogin={handleQuickLogin} busy={busyRole} />}
       </motion.div>
     </div>
   );
@@ -430,7 +433,7 @@ export function RegisterPage() {
           </Card>
         </motion.div>
 
-        <DemoCredentialsPanel onQuickLogin={handleQuickLogin} busy={busyRole} />
+        {import.meta.env.DEV && <DemoCredentialsPanel onQuickLogin={handleQuickLogin} busy={busyRole} />}
       </motion.div>
     </div>
   );

@@ -5,7 +5,7 @@ import {
   MagnifyingGlass, Download, Bank, Cards, DeviceMobile, Recycle,
   Prohibit, X,
 } from '@phosphor-icons/react';
-import { SEED_COURSES } from '@/data';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +17,6 @@ import {
   fetchAdminPayments, processPaymentRefund,
   type AdminPayment, type PaymentStatus, type PaymentFilters,
 } from '@/services/adminService';
-import { useAuth } from '@/contexts/AuthContext';
 
 const itemVariants = {
   hidden: { opacity: 0, y: 16 },
@@ -48,9 +47,10 @@ const fmtMoney = (n: number, c: string) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: c || 'USD' }).format(n);
 
 export function AdminPaymentsPage() {
-  const { profile } = useAuth();
   const [payments, setPayments] = useState<AdminPayment[]>([]);
+  const [courses, setCourses] = useState<{ id: string; title: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [refunding, setRefunding] = useState(false);
   const [selected, setSelected] = useState<AdminPayment | null>(null);
   const [policy, setPolicy] = useState<'full' | 'partial'>('full');
@@ -60,15 +60,30 @@ export function AdminPaymentsPage() {
 
   const load = async (f: PaymentFilters) => {
     setLoading(true);
+    setError(null);
     try {
       const rows = await fetchAdminPayments(f);
       setPayments(rows);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to load payments');
+      setPayments([]);
+      setError(err.message || 'Failed to load payments');
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    let active = true;
+    supabase.from('courses').select('id,title').order('title').then(({ data, error: courseError }) => {
+      if (!active) return;
+      if (courseError) {
+        toast.error(courseError.message || 'Failed to load course filters');
+        return;
+      }
+      setCourses(data || []);
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => load(filters), 250);
@@ -104,7 +119,7 @@ export function AdminPaymentsPage() {
         toast.error(`Partial amount must be between 0.01 and ${fmtMoney(selected.amount, selected.currency)}`);
         return;
       }
-      const res = await processPaymentRefund(selected.id, policy, amt, reason, profile?.id);
+      const res = await processPaymentRefund(selected.id, policy, amt, reason);
       if (!res.ok) {
         toast.error(res.message);
         return;
@@ -156,13 +171,17 @@ export function AdminPaymentsPage() {
             Transaction ledger with audited refund controls
           </p>
         </div>
-        <Button variant="outline" onClick={exportCsv} className="gap-2 shrink-0">
+        <Button variant="outline" onClick={exportCsv} disabled={loading || payments.length === 0 || !!error} className="gap-2 shrink-0">
           <Download size={16} /> Export CSV
         </Button>
       </div>
 
       {/* Metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {loading ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[0, 1, 2, 3].map((item) => <Card key={item} className="h-20 animate-pulse border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900" />)}
+        </div>
+      ) : !error && <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Total Volume', value: fmtMoney(metrics.totalVolume, 'USD'), icon: Wallet, cls: 'text-zinc-600 bg-zinc-100 dark:bg-zinc-800' },
           { label: 'Completed', value: fmtMoney(metrics.completedVolume, 'USD'), icon: CheckCircle, cls: 'text-emerald-600 bg-emerald-100 dark:bg-emerald-900/30' },
@@ -181,7 +200,7 @@ export function AdminPaymentsPage() {
             </CardContent>
           </Card>
         ))}
-      </div>
+      </div>}
 
       {/* Filters */}
       <Card className="border-zinc-200 dark:border-zinc-800">
@@ -216,8 +235,8 @@ export function AdminPaymentsPage() {
               onChange={(e) => setFilters({ ...filters, courseId: e.target.value })}
             >
               <option value="all">All courses</option>
-              {SEED_COURSES.map((c) => (
-                <option key={c.id} value={c.id}>{c.title}</option>
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>{course.title}</option>
               ))}
             </select>
             <input
@@ -244,6 +263,13 @@ export function AdminPaymentsPage() {
               {[...Array(5)].map((_, i) => (
                 <div key={i} className="h-12 bg-zinc-100 dark:bg-zinc-800 rounded-lg animate-pulse" />
               ))}
+            </div>
+          ) : error ? (
+            <div className="p-12 text-center">
+              <Wallet size={36} className="mx-auto text-red-300 mb-3" />
+              <p className="text-sm font-medium text-red-600">Could not load payment records</p>
+              <p className="mt-1 text-xs text-zinc-500">{error}</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => void load(filters)}>Retry</Button>
             </div>
           ) : payments.length === 0 ? (
             <div className="p-12 text-center">

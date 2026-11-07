@@ -1,17 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  Users, BookOpen, Wallet, Trophy,
-  ArrowRight, Trash, Clock,
-  Check, X, CreditCard, GraduationCap, ChartLine, Download
+  Users, BookOpen, Wallet, Trophy, ArrowRight, GraduationCap, ChartLine,
 } from '@phosphor-icons/react';
 import { ROUTES } from '@/constants/navigation';
-import { SEED_COURSES, MOCK_USERS, MOCK_ENROLLMENTS, MOCK_PAYMENTS } from '@/data';
+import { fetchAdminPayments, fetchLMSMetrics, type AdminPayment, type LMSMetrics } from '@/services/adminService';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
 import { AdminCourseList } from './AdminCourseList';
 import { AdminCourseForm } from './AdminCourseForm';
 
@@ -42,11 +38,31 @@ function StatCard({ icon: Icon, label, value, sub, color }: { icon: React.Elemen
 }
 
 export function AdminDashboard() {
-  const totalStudents = MOCK_USERS.filter(u => u.role === 'student').length;
-  const totalCourses = SEED_COURSES.length;
-  const totalRevenue = MOCK_PAYMENTS.filter(p => p.status === 'completed').reduce((s, p) => s + p.amount, 0);
-  const totalEnrollments = MOCK_ENROLLMENTS.length;
-  const recentPayments = MOCK_PAYMENTS.slice(0, 4);
+  const [metrics, setMetrics] = useState<LMSMetrics | null>(null);
+  const [recentPayments, setRecentPayments] = useState<AdminPayment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([fetchLMSMetrics(), fetchAdminPayments()])
+      .then(([nextMetrics, payments]) => {
+        if (!active) return;
+        setMetrics(nextMetrics);
+        setRecentPayments(payments.slice(0, 4));
+      })
+      .catch((err: unknown) => {
+        if (active) setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
+
+  const revenue = Object.entries(metrics?.revenueByCurrency || {}).map(([currency, amount]) =>
+    new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount),
+  ).join(' · ') || 'No completed payments';
 
   return (
     <motion.div initial="hidden" animate="visible" variants={containerVariants}>
@@ -54,12 +70,18 @@ export function AdminDashboard() {
         <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-zinc-900 dark:text-white">Admin Dashboard</h1>
         <p className="text-zinc-500 dark:text-zinc-400 mt-1">Overview of your learning platform</p>
       </motion.div>
-      <motion.div variants={itemVariants} className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard icon={Users} label="Total Students" value={totalStudents} color="text-blue-600 bg-blue-50 dark:bg-blue-900/20" />
-        <StatCard icon={BookOpen} label="Courses" value={totalCourses} color="text-amber-600 bg-amber-50 dark:bg-amber-900/20" />
-        <StatCard icon={Wallet} label="Revenue" value={`$${totalRevenue.toLocaleString()}`} color="text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20" />
-        <StatCard icon={Trophy} label="Enrollments" value={totalEnrollments} color="text-purple-600 bg-purple-50 dark:bg-purple-900/20" />
-      </motion.div>
+      {error ? (
+        <Card className="mb-8 border-red-200 dark:border-red-900/50">
+          <CardContent className="p-4 text-sm text-red-600">Dashboard data unavailable: {error}</CardContent>
+        </Card>
+      ) : (
+        <motion.div variants={itemVariants} className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <StatCard icon={Users} label="Total Students" value={loading ? '...' : metrics?.totalStudents ?? 0} color="text-blue-600 bg-blue-50 dark:bg-blue-900/20" />
+          <StatCard icon={BookOpen} label="Courses" value={loading ? '...' : metrics?.totalCourses ?? 0} color="text-amber-600 bg-amber-50 dark:bg-amber-900/20" />
+          <StatCard icon={Wallet} label="Revenue by currency" value={loading ? '...' : revenue} color="text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20" />
+          <StatCard icon={Trophy} label="Enrollments" value={loading ? '...' : metrics?.totalEnrollments ?? 0} color="text-purple-600 bg-purple-50 dark:bg-purple-900/20" />
+        </motion.div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
           <motion.div variants={itemVariants}>
@@ -70,27 +92,29 @@ export function AdminDashboard() {
               </CardHeader>
               <CardContent className="p-0">
                 <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                  {recentPayments.map((payment) => {
-                    const course = SEED_COURSES.find(c => c.id === payment.courseId);
-                    const user = MOCK_USERS.find(u => u.id === payment.userId);
-                    return (
+                  {loading ? (
+                    <p className="px-4 py-6 text-sm text-zinc-500">Loading payment records...</p>
+                  ) : error ? (
+                    <p className="px-4 py-6 text-sm text-red-600">Payment records unavailable.</p>
+                  ) : recentPayments.length === 0 ? (
+                    <p className="px-4 py-6 text-sm text-zinc-500">No payment records found.</p>
+                  ) : recentPayments.map((payment) => (
                       <div key={payment.id} className="flex items-center justify-between px-4 py-3">
                         <div className="flex items-center gap-3">
                           <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-xs font-bold text-emerald-600">
-                            {user?.name?.charAt(0) || '?'}
+                            {payment.studentName.charAt(0) || '?'}
                           </div>
                           <div>
-                            <p className="text-sm font-medium text-zinc-900 dark:text-white">{user?.name || 'Unknown'}</p>
-                            <p className="text-xs text-zinc-500">{course?.title || 'Course'}</p>
+                            <p className="text-sm font-medium text-zinc-900 dark:text-white">{payment.studentName}</p>
+                            <p className="text-xs text-zinc-500">{payment.courseTitle}</p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-bold text-emerald-600">${payment.amount}</p>
+                          <p className="text-sm font-bold text-emerald-600">{new Intl.NumberFormat('en-US', { style: 'currency', currency: payment.currency }).format(payment.amount)}</p>
                           <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5">{payment.status}</Badge>
                         </div>
                       </div>
-                    );
-                  })}
+                    ))}
                 </div>
               </CardContent>
             </Card>

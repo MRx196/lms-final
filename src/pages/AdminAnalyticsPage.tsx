@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
   Users, BookOpen, Wallet, GraduationCap, Trophy, ChartLineUp,
@@ -8,7 +8,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
-import { toast } from 'sonner';
 import {
   fetchLMSMetrics, fetchRevenueReport, fetchCourseAnalytics,
   type LMSMetrics, type RevenuePoint, type CourseAnalyticsRow,
@@ -59,26 +58,31 @@ export function AdminAnalyticsPage() {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<CourseSort>('revenue');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const [m, rev, c] = await Promise.all([
-          fetchLMSMetrics(),
-          fetchRevenueReport(period),
-          fetchCourseAnalytics(),
-        ]);
-        setMetrics(m);
-        setRevenue(rev);
-        setCourses(c);
-      } catch (err: any) {
-        toast.error(err.message || 'Failed to load analytics');
-      } finally {
-        setLoading(false);
-      }
-    })();
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [m, rev, c] = await Promise.all([
+        fetchLMSMetrics(),
+        fetchRevenueReport(period),
+        fetchCourseAnalytics(),
+      ]);
+      setMetrics(m);
+      setRevenue(rev);
+      setCourses(c);
+    } catch (err) {
+      setMetrics(null);
+      setRevenue([]);
+      setCourses([]);
+      setError(err instanceof Error ? err.message : 'Failed to load analytics');
+    } finally {
+      setLoading(false);
+    }
   }, [period]);
+
+  useEffect(() => { void load(); }, [load]);
 
   const kpis = useMemo(
     () =>
@@ -116,6 +120,15 @@ export function AdminAnalyticsPage() {
 
   return (
     <motion.div initial="hidden" animate="visible" variants={itemVariants} className="space-y-6">
+      {error && (
+        <Card className="border-red-200 dark:border-red-900/50">
+          <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
+            <p className="text-sm font-medium text-red-600">Reports could not be loaded</p>
+            <p className="text-xs text-zinc-500">{error}</p>
+            <Button variant="outline" size="sm" onClick={() => void load()}>Retry</Button>
+          </CardContent>
+        </Card>
+      )}
       {/* Header */}
       <div>
         <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-zinc-900 dark:text-white">Reports &amp; Analytics</h1>
