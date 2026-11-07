@@ -86,6 +86,22 @@ export async function getTestimonials() {
   return data as TestimonialRow[];
 }
 
+/** Real public-facing counts for the homepage stats strip (head-only counts). */
+export async function getPublicStats() {
+  const [courses, categories, instructors, modules] = await Promise.all([
+    supabase.from('courses').select('id', { count: 'exact', head: true }).eq('status', 'published'),
+    supabase.from('categories').select('id', { count: 'exact', head: true }),
+    supabase.from('instructors').select('id', { count: 'exact', head: true }),
+    supabase.from('modules').select('id', { count: 'exact', head: true }),
+  ]);
+  return {
+    courses: courses.count ?? 0,
+    categories: categories.count ?? 0,
+    instructors: instructors.count ?? 0,
+    modules: modules.count ?? 0,
+  };
+}
+
 /* ── Phase 20: Paginated public query (server-side) ── */
 
 export type PagedResult<T> = {

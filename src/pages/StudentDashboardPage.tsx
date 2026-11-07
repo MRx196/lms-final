@@ -18,7 +18,7 @@ type EnrollmentRow = { id: string; course_id: string; status: string; progress: 
 type CourseRow = { id: string; title: string; slug: string; image: string | null; duration_hours: number | null; total_lessons: number | null; total_modules: number | null };
 type DashboardCourse = { enrollment: EnrollmentRow; course: CourseRow | null; progressPct: number; lessonCount: number };
 type AssignmentItem = { id: string; title: string; due_date: string | null; status: string; lesson_title: string };
-type QuizResultItem = { id: string; score: number | null; total_questions: number | null; passed: boolean | null; created_at: string | null; lesson_title: string };
+type QuizResultItem = { id: string; score: number | null; total_score: number | null; passed: boolean | null; created_at: string | null; lesson_title: string };
 
 const itemVariants = { hidden: { opacity: 0, y: 16 }, visible: { opacity: 1, y: 0, transition: { ease: 'easeOut' as const } } };
 
@@ -63,10 +63,10 @@ export function StudentDashboard() {
         const courseIds = enriched.map((c) => c.enrollment.course_id);
         const [{ data: assignData }, { data: quizData }] = await Promise.all([
           supabase.from('assignments').select(`*, lessons:lesson_id(title)`).in('course_id', courseIds).order('due_date', { ascending: true }).limit(5),
-          supabase.from('quiz_results').select(`*, lessons:lesson_id(title)`).in('course_id', courseIds).order('created_at', { ascending: false }).limit(5),
+          supabase.from('quiz_results').select(`*, lessons:lesson_id(title), quizzes:quiz_id(title)`).in('course_id', courseIds).order('created_at', { ascending: false }).limit(5),
         ]);
         if (assignData) setAssignments((assignData as any[]).map((a) => ({ id: a.id, title: a.title, due_date: a.due_date, status: a.status || 'pending', lesson_title: a.lessons?.title || '' })));
-        if (quizData) setQuizResults((quizData as any[]).map((q) => ({ id: q.id, score: q.score, total_questions: q.total_questions, passed: q.passed, created_at: q.created_at, lesson_title: q.lessons?.title || '' })));
+        if (quizData) setQuizResults((quizData as any[]).map((q) => ({ id: q.id, score: q.score, total_score: q.total_score, passed: q.passed, created_at: q.created_at, lesson_title: q.quizzes?.title || q.lessons?.title || 'Quiz' })));
       } catch (err: any) { toast.error(err.message || 'Failed to load dashboard'); }
       finally { setLoading(false); }
     }
@@ -204,7 +204,7 @@ export function StudentDashboard() {
               <div className="space-y-3">{quizResults.slice(0, 4).map((q) => (
                 <div key={q.id} className="flex items-center gap-3 p-3 rounded-lg bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${q.passed ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30' : 'bg-red-100 text-red-600 dark:bg-red-900/30'}`}>{q.passed ? <Check size={14} weight="bold" /> : <XCircle size={14} weight="bold" />}</div>
-                  <div className="flex-1 min-w-0"><p className="text-sm font-medium text-zinc-900 dark:text-white truncate">{q.lesson_title}</p><p className="text-xs text-zinc-500">{q.score !== null && q.total_questions !== null ? `${Math.round((q.score / q.total_questions) * 100)}% (${q.score}/${q.total_questions})` : 'No score yet'}</p></div>
+                  <div className="flex-1 min-w-0"><p className="text-sm font-medium text-zinc-900 dark:text-white truncate">{q.lesson_title}</p><p className="text-xs text-zinc-500">{q.score !== null && q.total_score !== null ? `${Math.round((q.score / q.total_score) * 100)}% (${q.score}/${q.total_score})` : 'No score yet'}</p></div>
                   <span className="text-xs text-zinc-400 shrink-0">{q.created_at ? new Date(q.created_at).toLocaleDateString() : ''}</span>
                 </div>
               ))}</div>

@@ -6,9 +6,8 @@ import {
   Sparkle, Users, ChartLine, Certificate, Trophy, ShieldCheck, Lightning
 } from '@phosphor-icons/react';
 import { ROUTES } from '@/constants/navigation';
-import { getFeaturedCourses, getCategories, getTestimonials } from '@/services/courseService';
+import { getFeaturedCourses, getCategories, getTestimonials, getPublicStats } from '@/services/courseService';
 import type { CourseWithRelations } from '@/services/courseService';
-import { MOCK_COURSES, MOCK_CATEGORIES, MOCK_TESTIMONIALS } from '@/constants/mockData';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -103,36 +102,32 @@ export function HomePage() {
   const [featured, setFeatured] = useState<CourseWithRelations[]>([]);
   const [categories, setCategories] = useState<{ name: string; count: number }[]>([]);
   const [testimonials, setTestimonials] = useState<{ name: string; role: string; quote: string; rating: number; avatar: string }[]>([]);
+  const [stats, setStats] = useState({ courses: 0, categories: 0, instructors: 0, modules: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
-      // Never leave the page blank: on error or empty DB results we fall back
-      // to curated mock content so Hero, Featured, Categories and Testimonials
-      // always render rich learning content.
+      // Production data only: render real Supabase records; show empty
+      // states (never fabricated content) when tables are empty or fail.
       try {
-        const [courses, cats, tests] = await Promise.all([
+        const [courses, cats, tests, counts] = await Promise.all([
           getFeaturedCourses().catch(() => []),
           getCategories().catch(() => []),
-          Promise.resolve(getTestimonials ? getTestimonials() : []).catch(() => [])
+          getTestimonials().catch(() => []),
+          getPublicStats().catch(() => ({ courses: 0, categories: 0, instructors: 0, modules: 0 })),
         ]);
 
-        const useCourses = courses && courses.length > 0 ? courses : (MOCK_COURSES as unknown as CourseWithRelations[]);
-        setFeatured(useCourses.slice(0, 6));
-
-        const useCats = cats && cats.length > 0 ? cats : MOCK_CATEGORIES;
-        setCategories(useCats.map(c => ({
+        setFeatured(courses || []);
+        setCategories((cats || []).map(c => ({
           name: c.name,
-          count: useCourses.filter(co => co.category_id === c.id).length || 4
+          count: (courses || []).filter(co => co.category_id === c.id).length
         })));
-
-        setTestimonials(tests && tests.length > 0 ? tests : MOCK_TESTIMONIALS);
+        setTestimonials(tests || []);
+        setStats(counts);
+        setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load');
-        setFeatured(MOCK_COURSES as unknown as CourseWithRelations[]);
-        setCategories(MOCK_CATEGORIES.map(c => ({ name: c.name, count: 4 })));
-        setTestimonials(MOCK_TESTIMONIALS);
       } finally {
         setLoading(false);
       }
@@ -140,11 +135,11 @@ export function HomePage() {
     load();
   }, []);
 
-  const stats = [
-    { icon: Users, label: 'Active Students', value: '12,000+' },
-    { icon: BookOpen, label: 'Courses Available', value: '200+' },
-    { icon: ChartLine, label: 'Average Rating', value: '4.8/5' },
-    { icon: Certificate, label: 'Certificates Issued', value: '5,000+' },
+  const statItems = [
+    { icon: BookOpen, label: 'Courses Available', value: `${stats.courses}+` },
+    { icon: Sparkle, label: 'Categories', value: `${stats.categories}+` },
+    { icon: User, label: 'Expert Instructors', value: `${stats.instructors}+` },
+    { icon: GraduationCap, label: 'Curriculum Modules', value: `${stats.modules}+` },
   ];
 
   const valueProps = [
@@ -192,7 +187,7 @@ export function HomePage() {
       <section className="border-y border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
         <div className="max-w-7xl mx-auto px-4 lg:px-8 py-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            {stats.map((stat, i) => (
+            {statItems.map((stat, i) => (
               <motion.div key={stat.label} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.1 }} className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center shrink-0">
                   <stat.icon size={20} className="text-emerald-600" />
@@ -206,6 +201,14 @@ export function HomePage() {
           </div>
         </div>
       </section>
+
+      {error && (
+        <div className="max-w-7xl mx-auto px-4 lg:px-8 pt-6">
+          <div className="rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+            Some content could not be loaded. Please refresh to try again.
+          </div>
+        </div>
+      )}
 
       <section className="py-20 lg:py-28">
         <div className="max-w-7xl mx-auto px-4 lg:px-8">
@@ -225,6 +228,12 @@ export function HomePage() {
                   <CourseCard key={course.id} course={course} index={i} />
                 ))}
           </motion.div>
+          {!loading && featured.length === 0 && (
+            <div className="text-center py-12 text-zinc-500 dark:text-zinc-400">
+              <BookOpen size={32} className="mx-auto mb-3 opacity-50" />
+              <p>No featured courses yet. Check back soon.</p>
+            </div>
+          )}
           <div className="mt-8 text-center sm:hidden">
             <Link to={ROUTES.courses}>
               <Button variant="outline" className="gap-2">View All Courses <ArrowRight size={16} /></Button>
@@ -240,11 +249,25 @@ export function HomePage() {
             <p className="text-zinc-500 dark:text-zinc-400">Find the perfect course for your goals</p>
           </motion.div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {(loading ? MOCK_CATEGORIES.map(c => ({ name: c.name, count: 4 })) : categories).map((cat, i) => {
+            {(loading
+              ? Array.from({ length: 8 }).map((_, i) => ({ name: '', count: -1, key: `sk-${i}` }))
+              : categories.map((c, i) => ({ ...c, key: c.name + i }))
+            ).map((cat) => {
+              if (cat.count === -1) {
+                return (
+                  <Card key={cat.key} className="border-zinc-200 dark:border-zinc-800 animate-pulse">
+                    <CardContent className="p-6">
+                      <div className="w-12 h-12 rounded-xl bg-zinc-200 dark:bg-zinc-800 mx-auto mb-3" />
+                      <div className="h-3 w-20 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+                    </CardContent>
+                  </Card>
+                );
+              }
+              const i = categories.findIndex(c => c.name === cat.name);
               const icons = [BookOpen, Users, Sparkle, ChartLine, Certificate, GraduationCap, Star, Trophy];
-              const Icon = icons[i % icons.length];
+              const Icon = icons[Math.max(i, 0) % icons.length];
               return (
-                <motion.div key={cat.name} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.05 }}>
+                <motion.div key={cat.key} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: i * 0.05 }}>
                   <Link to={`${ROUTES.courses}?category=${encodeURIComponent(cat.name)}`} className="group block">
                     <Card className="border-zinc-200 dark:border-zinc-800 hover:border-emerald-300 dark:hover:border-emerald-700 transition-all duration-300 hover:shadow-md hover:-translate-y-1">
                       <CardContent className="p-6 text-center">
@@ -287,6 +310,7 @@ export function HomePage() {
         </div>
       </section>
 
+      {testimonials.length > 0 && (
       <section className="py-20 bg-zinc-50 dark:bg-zinc-900/50">
         <div className="max-w-7xl mx-auto px-4 lg:px-8">
           <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} className="text-center mb-12">
@@ -314,6 +338,7 @@ export function HomePage() {
           </motion.div>
         </div>
       </section>
+      )}
 
       <section className="py-20">
         <div className="max-w-7xl mx-auto px-4 lg:px-8">

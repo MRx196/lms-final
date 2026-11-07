@@ -1,5 +1,4 @@
 import { supabase } from '@/integrations/supabase/client';
-import { SEED_COURSES } from '@/data';
 
 /* ----------------------------- Types ------------------------------- */
 
@@ -89,8 +88,11 @@ export interface LMSMetrics {
 
 /* ---------------------------- Helpers ------------------------------ */
 
-const courseTitle = new Map(SEED_COURSES.map((c) => [c.id, c.title]));
+const courseTitle = new Map<string, string>();
 export const getCourseTitle = (id: string) => courseTitle.get(id) ?? 'Course';
+const rememberCourseTitles = (rows: { id: string; title: string }[] = []) => {
+  for (const c of rows) courseTitle.set(c.id, c.title);
+};
 
 const normStatus = (s?: string): PaymentStatus => {
   const st = (s || 'pending').toLowerCase();
@@ -148,6 +150,7 @@ export async function fetchAdminPayments(filters: PaymentFilters = {}): Promise<
 
   const profiles = new Map((profilesResult.data || []).map((p: any) => [p.user_id, p]));
   const courses = new Map((coursesResult.data || []).map((c: any) => [c.id, c.title]));
+  rememberCourseTitles(coursesResult.data || []);
   const search = filters.studentQuery?.trim().toLowerCase();
 
   return rows.map((r: any): AdminPayment => {
@@ -237,6 +240,7 @@ export async function fetchAdminEnrollments(filters: EnrollmentFilters = {}): Pr
 
   const profiles = new Map((profilesResult.data || []).map((p: any) => [p.user_id, p]));
   const courses = new Map((coursesResult.data || []).map((c: any) => [c.id, c]));
+  rememberCourseTitles(coursesResult.data || []);
   const search = filters.studentQuery?.trim().toLowerCase();
 
   return rows.map((r: any): AdminEnrollment => {
@@ -363,6 +367,7 @@ export async function fetchCourseAnalytics(): Promise<CourseAnalyticsRow[]> {
   if (failedQuery?.error) throw failedQuery.error;
 
   const titles = new Map((courses.data || []).map((course: any) => [course.id, course.title]));
+  rememberCourseTitles(courses.data || []);
   const assignmentCourses = new Map((assignments.data || []).map((assignment: any) => [assignment.id, assignment.course_id]));
   return (courses.data || []).map((course: any) => {
     const courseEnrollments = (enrollments.data || []).filter((row: any) => row.course_id === course.id);

@@ -230,28 +230,3 @@ export function subscribeToNotifications(cb: NotificationsListener): () => void 
 export function notifyListeners(): void {
   listeners.forEach((l) => l());
 }
-
-/* ── Event simulator (client-safe; inserts via student RLS) ── */
-
-const SIM_EVENTS: { title: string; category: string; type: string; emoji: string; accent: string }[] = [
-  { title: 'Payment received', category: 'payment', type: 'success', emoji: '💳', accent: 'text-emerald-600 bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-500/15' },
-  { title: 'New course unlocked', category: 'course', type: 'info', emoji: '📘', accent: 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-500/15' },
-  { title: 'Assignment graded', category: 'assignment', type: 'success', emoji: '📝', accent: 'text-amber-600 bg-amber-100 dark:text-amber-400 dark:bg-amber-500/15' },
-  { title: 'Quiz completed', category: 'quiz', type: 'success', emoji: '🧠', accent: 'text-rose-600 bg-rose-100 dark:text-rose-400 dark:bg-rose-500/15' },
-  { title: 'Certificate issued', category: 'certificate', type: 'success', emoji: '🎓', accent: 'text-cyan-600 bg-cyan-100 dark:text-cyan-400 dark:bg-cyan-500/15' },
-];
-
-export async function simulateEvent(userId: string): Promise<void> {
-  const ev = SIM_EVENTS[Math.floor(Math.random() * SIM_EVENTS.length)];
-  const seq = Math.floor(Math.random() * 9000) + 1000;
-  await createNotification({
-    user_id: userId,
-    title: ev.title,
-    message: `${ev.title.toLowerCase()} — reference #${seq}. This is a sample notification shown for demonstration.`,
-    type: ev.type,
-    category: ev.category,
-    event_type: ev.category === 'payment' ? 'payment_success' : ev.category === 'course' ? 'course_enrollment' : ev.category === 'assignment' ? 'assignment_graded' : ev.category === 'quiz' ? 'quiz_completed' : 'certificate_issued',
-    priority: 'normal',
-  });
-  toast.success('Sample notification added');
-}

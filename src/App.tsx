@@ -4,6 +4,7 @@ import { Spinner } from '@phosphor-icons/react';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { PublicLayout } from '@/layouts/PublicLayout';
 import { StudentLayout } from '@/layouts/StudentLayout';
+import { InstructorLayout } from '@/layouts/InstructorLayout';
 import { AdminLayout } from '@/layouts/AdminLayout';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { ROUTES } from '@/constants/navigation';
@@ -31,6 +32,9 @@ const StudentCertificatesPage = lazy(() => import('@/pages/StudentPages').then((
 const StudentNotificationsPage = lazy(() => import('@/pages/StudentPages').then((m) => ({ default: m.StudentNotificationsPage })));
 const StudentProfilePage = lazy(() => import('@/pages/StudentProfilePage'));
 const StudentSettingsPage = lazy(() => import('@/pages/StudentPages').then((m) => ({ default: m.StudentSettingsPage })));
+const InstructorDashboardPage = lazy(() => import('@/pages/InstructorDashboardPage').then((m) => ({ default: m.InstructorDashboardPage })));
+const InstructorCoursesPage = lazy(() => import('@/pages/InstructorCoursesPage').then((m) => ({ default: m.InstructorCoursesPage })));
+const InstructorGradingPage = lazy(() => import('@/pages/InstructorGradingPage').then((m) => ({ default: m.InstructorGradingPage })));
 const AdminDashboard = lazy(() => import('@/pages/AdminPages').then((m) => ({ default: m.AdminDashboard })));
 const AdminStudentsPage = lazy(() => import('@/pages/AdminPages').then((m) => ({ default: m.AdminStudentsPage })));
 const AdminCoursesPage = lazy(() => import('@/pages/AdminPages').then((m) => ({ default: m.AdminCoursesPage })));
@@ -49,6 +53,7 @@ const CertificateVerifyPage = lazy(() => import('@/pages/CertificatePages').then
 const AdminCertificatesPage = lazy(() => import('@/pages/CertificatePages').then((m) => ({ default: m.AdminCertificatesPage })));
 const AdminAuditPage = lazy(() => import('@/pages/AdminAuditPage').then((m) => ({ default: m.AdminAuditPage })));
 const AdminSecurityPage = lazy(() => import('@/pages/AdminSecurityPage').then((m) => ({ default: m.AdminSecurityPage })));
+const AdminSettingsPage = lazy(() => import('@/pages/AdminSettingsPage').then((m) => ({ default: m.AdminSettingsPage })));
 const AboutPage = lazy(() => import('@/components/StaticPages').then((m) => ({ default: m.AboutPage })));
 const ContactPage = lazy(() => import('@/components/ContactPage').then((m) => ({ default: m.ContactPage })));
 
@@ -128,6 +133,22 @@ function AppRoutes() {
         <Route path="settings" element={<StudentSettingsPage />} />
       </Route>
 
+      {/* Instructor */}
+      <Route
+        path="/instructor"
+        element={
+          <ProtectedRoute requiredRole="instructor" layout={InstructorLayout} />
+        }
+      >
+        <Route index element={<Navigate to={ROUTES.instructorDashboard} replace />} />
+        <Route path="dashboard" element={<InstructorDashboardPage />} />
+        <Route path="courses" element={<InstructorCoursesPage />} />
+        <Route path="courses/:courseId/builder" element={<CourseBuilderPage backTo={ROUTES.instructorCourses} />} />
+        <Route path="grading" element={<InstructorGradingPage />} />
+        <Route path="notifications" element={<StudentNotificationsPage />} />
+        <Route path="profile" element={<StudentProfilePage />} />
+      </Route>
+
       {/* Admin */}
       <Route
         path="/admin"
@@ -158,6 +179,7 @@ function AppRoutes() {
         <Route path="categories" element={<AdminCategoriesPage />} />
         <Route path="instructors" element={<AdminInstructorsPage />} />
         <Route path="reports" element={<AdminAnalyticsPage />} />
+        <Route path="settings" element={<AdminSettingsPage />} />
       </Route>
 
       {/* Fallback */}

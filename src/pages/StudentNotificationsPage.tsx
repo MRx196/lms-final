@@ -5,13 +5,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ROUTES } from '@/constants/navigation';
 import {
   deleteNotification, fetchNotifications, markAllNotificationsRead,
-  markNotificationRead, simulateEvent, subscribeToNotifications,
+  markNotificationRead, subscribeToNotifications,
   type NotificationRow,
 } from '@/services/notificationService';
 import { formatTimestamp } from '@/services/notificationService';
 import { categoryMeta } from '@/services/notificationService';
 import { NOTIFICATION_FILTERS, notificationRowMeta, priorityBadge, priorityLabel } from '@/components/notifications/NotificationShared';
-import { Check, CheckFat, EnvelopeSimple, Plus, Spinner, Trash, WarningCircle } from '@phosphor-icons/react';
+import { Check, CheckFat, EnvelopeSimple, Spinner, Trash, WarningCircle } from '@phosphor-icons/react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -90,11 +90,6 @@ export function StudentNotificationsPage() {
     setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, read: true } : r)));
   }
 
-  function runDemo() {
-    if (!user) return;
-    simulateEvent(user.id).then(load);
-  }
-
   return (
     <motion.div initial="hidden" animate="visible" className="space-y-5">
       <motion.div variants={rowVariants} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -103,11 +98,6 @@ export function StudentNotificationsPage() {
           <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
             {unread.length === 0 ? 'You are all caught up' : `${unread.length} unread notification${unread.length === 1 ? '' : 's'}`}
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={runDemo}>
-            <Plus size={14} className="mr-1" /> Add sample
-          </Button>
         </div>
       </motion.div>
 
@@ -165,11 +155,6 @@ export function StudentNotificationsPage() {
                 ? 'You have no notifications yet. Announcements, grade updates and course activity will appear here.'
                 : 'No notifications match this filter.'}
             </p>
-            {filter === 'all' && (
-              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white mt-4" onClick={runDemo}>
-                <Plus size={14} className="mr-1" /> Add a sample
-              </Button>
-            )}
           </div>
         </Card>
       ) : (

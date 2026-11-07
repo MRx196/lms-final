@@ -30,7 +30,7 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { ease: 'easeOut' as const } },
 };
 
-export function CourseBuilderPage() {
+export function CourseBuilderPage({ backTo = ROUTES.adminCourses }: { backTo?: string }) {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
   const [course, setCourse] = useState<Tables<'courses'> | null>(null);
@@ -157,7 +157,7 @@ export function CourseBuilderPage() {
       <div className="flex flex-col items-center justify-center py-20 text-zinc-400">
         <BookOpen size={40} />
         <p className="mt-4 text-sm">Course not found</p>
-        <Link to={ROUTES.adminCourses} className="mt-2 text-sm text-emerald-600 hover:underline">
+        <Link to={backTo} className="mt-2 text-sm text-emerald-600 hover:underline">
           Back to courses
         </Link>
       </div>
@@ -170,7 +170,7 @@ export function CourseBuilderPage() {
       <motion.div variants={itemVariants} className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Link
-            to={ROUTES.adminCourses}
+            to={backTo}
             className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 transition-colors"
           >
             <ArrowLeft size={18} />
@@ -306,7 +306,7 @@ export function CourseBuilderPage() {
       {/* Bottom actions */}
       <motion.div variants={itemVariants} className="mt-8 flex items-center justify-between">
         <Link
-          to={ROUTES.adminCourses}
+          to={backTo}
           className="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors"
         >
           &larr; Back to courses

@@ -53,10 +53,7 @@ export function AdminStudentsPage() {
     setLoading(true);
     try {
       const data = await fetchAllStudents();
-      const withStatus = data.map((u) => ({
-        ...u,
-        status: (localStorage.getItem(`student_status_${u.id}`) as 'active' | 'suspended') ?? u.status ?? 'active',
-      }));
+      const withStatus = data;
       const allCourseIds = Array.from(new Set(withStatus.flatMap((u) => u.enrolledCourseIds)));
       setCourseOptions(allCourseIds.map((id) => ({ id, title: getCourseTitle(id) })).filter((c) => c.title !== 'Course'));
       setUsers(withStatus);

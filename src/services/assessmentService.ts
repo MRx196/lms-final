@@ -526,15 +526,29 @@ export async function generateCertificateCode(): Promise<string> {
   return `NNH-CERT-${year}-${random}`;
 }
 
-export async function createCertificate(userId: string, courseId: string) {
-  const code = await generateCertificateCode();
-  const { data, error } = await supabase
-    .from('certificates')
-    .insert({ user_id: userId, course_id: courseId, certificate_code: code })
-    .select('*, course:courses(title)')
-    .single();
+/** Student requests a certificate — server enforces enrollment + completion rules. */
+export async function requestCertificate(courseId: string) {
+  const { data, error } = await supabase.rpc('request_certificate', { p_course_id: courseId });
   if (error) throw error;
   return data as any;
+}
+
+/** @deprecated Direct inserts bypass the approval workflow — use requestCertificate. */
+export async function createCertificate(userId: string, courseId: string) {
+  const { data, error } = await supabase.rpc('request_certificate', { p_course_id: courseId });
+  if (error) throw error;
+  return data as any;
+}
+
+export async function approveCertificate(certId: string) {
+  const { data, error } = await supabase.rpc('approve_certificate', { p_certificate_id: certId });
+  if (error) throw error;
+  return data as any;
+}
+
+export async function rejectCertificate(certId: string) {
+  const { error } = await supabase.rpc('reject_certificate', { p_certificate_id: certId });
+  if (error) throw error;
 }
 
 export async function getUserCertificates(userId: string) {
@@ -547,37 +561,34 @@ export async function getUserCertificates(userId: string) {
   return data as any[];
 }
 
-export async function verifyCertificate(code: string) {
-  const { data, error } = await supabase
-    .from('certificates')
-    .select(`
-      *,
-      user:profiles(full_name),
-      course:courses(title, slug, image)
-    `)
-    .eq('certificate_code', code)
-    .eq('revoked', false)
-    .single();
+export interface CertificateVerification {
+  found: boolean;
+  status?: 'pending' | 'active' | 'revoked';
+  valid?: boolean;
+  certificate_code?: string;
+  issued_at?: string | null;
+  student_name?: string | null;
+  course_title?: string | null;
+  course_slug?: string | null;
+}
+
+export async function verifyCertificate(code: string): Promise<CertificateVerification | null> {
+  const { data, error } = await supabase.rpc('verify_certificate', { p_code: code });
   if (error) return null;
-  return data as any;
+  return (data as CertificateVerification) ?? null;
 }
 
 export async function getAllCertificates() {
   const { data, error } = await supabase
     .from('certificates')
     .select('*, user:profiles(full_name), course:courses(title)')
-    .order('issued_at', { ascending: false });
+    .order('created_at', { ascending: false });
   if (error) throw error;
   return data as any[];
 }
 
 export async function revokeCertificate(certId: string) {
-  const { data, error } = await supabase
-    .from('certificates')
-    .update({ revoked: true })
-    .eq('id', certId)
-    .select()
-    .single();
+  const { data, error } = await supabase.rpc('revoke_certificate', { p_certificate_id: certId });
   if (error) throw error;
   return data;
 }

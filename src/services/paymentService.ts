@@ -46,19 +46,6 @@ export class PaystackGateway implements PaymentGateway {
   }
 }
 
-// ─────────── Mock Gateway (disabled until server-side test harness exists) ─
-export class MockGateway implements PaymentGateway {
-  name = 'mock';
-
-  async initializePayment(): Promise<InitializePaymentResult> {
-    throw new Error(PAYMENT_CHECKOUT_DISABLED_MESSAGE);
-  }
-
-  async verifyPayment(): Promise<VerifyPaymentResult> {
-    throw new Error(PAYMENT_CHECKOUT_DISABLED_MESSAGE);
-  }
-}
-
 export function getGateway(): PaymentGateway {
   throw new Error(PAYMENT_CHECKOUT_DISABLED_MESSAGE);
 }

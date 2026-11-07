@@ -21,7 +21,7 @@ import { useState, useEffect } from 'react';
 type EnrollmentRow = { id: string; course_id: string; status: string; progress: number | null; enrolled_at: string | null; completed_at: string | null };
 type CourseRow = { id: string; title: string; slug: string; image: string | null; duration_hours: number | null; total_lessons: number | null; total_modules: number | null };
 type AssignmentItem = { id: string; title: string; description: string | null; due_date: string | null; status: string; max_score: number | null; score: number | null; submitted_at: string | null; lesson_title: string };
-type QuizResultItem = { id: string; score: number | null; total_questions: number | null; passed: boolean | null; created_at: string | null; lesson_title: string };
+type QuizResultItem = { id: string; score: number | null; total_score: number | null; passed: boolean | null; created_at: string | null; lesson_title: string };
 type NotificationItem = { id: string; title: string; message: string; type: string; read: boolean | null; created_at: string | null };
 type UserProfile = { full_name: string | null; avatar_url: string | null; bio: string | null; phone: string | null; email: string | null };
 
@@ -205,8 +205,8 @@ export function StudentQuizzesPage() {
                   <p className="text-xs text-zinc-500">{q.lessons?.title}</p>
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-sm font-bold text-zinc-900 dark:text-white">{q.score !== null ? `${Math.round((q.score / q.total_questions!) * 100)}%` : 'N/A'}</p>
-                  <p className="text-xs text-zinc-500">{q.score}/{q.total_questions}</p>
+                  <p className="text-sm font-bold text-zinc-900 dark:text-white">{q.score !== null && q.total_score ? `${Math.round((q.score / q.total_score) * 100)}%` : 'N/A'}</p>
+                  <p className="text-xs text-zinc-500">{q.score}/{q.total_score}</p>
                 </div>
                 <span className="text-xs text-zinc-400 shrink-0">{q.created_at ? new Date(q.created_at).toLocaleDateString() : ''}</span>
               </CardContent>
@@ -231,15 +231,15 @@ export function StudentResultsPage() {
         const { data: enrollData } = await supabase.from('enrollments').select('course_id').eq('user_id', user.id);
         const courseIds = (enrollData || []).map((e: any) => e.course_id);
         if (courseIds.length === 0) { setLoading(false); return; }
-        const { data } = await supabase.from('quiz_results').select(`*, lessons:lesson_id(title)`).in('course_id', courseIds).order('created_at', { ascending: false });
-        if (data) setResults((data as any[]).map((r) => ({ ...r, lesson_title: r.lessons?.title || '' })));
+        const { data } = await supabase.from('quiz_results').select(`*, lessons:lesson_id(title), quizzes:quiz_id(title)`).in('course_id', courseIds).order('created_at', { ascending: false });
+        if (data) setResults((data as any[]).map((r) => ({ ...r, lesson_title: r.quizzes?.title || r.lessons?.title || 'Quiz' })));
       } catch (err: any) { toast.error(err.message || 'Failed to load results'); }
       finally { setLoading(false); }
     }
     load();
   }, []);
 
-  const avgScore = results.length > 0 ? Math.round(results.reduce((s, r) => s + (r.score && r.total_questions ? (r.score / r.total_questions) * 100 : 0), 0) / results.length) : 0;
+  const avgScore = results.length > 0 ? Math.round(results.reduce((s, r) => s + (r.score && r.total_score ? (r.score / r.total_score) * 100 : 0), 0) / results.length) : 0;
   const passRate = results.length > 0 ? Math.round((results.filter((r) => r.passed).length / results.length) * 100) : 0;
 
   if (loading) return <div className="space-y-4">{[0, 1, 2].map((i) => (<div key={i} className="h-20 bg-zinc-100 dark:bg-zinc-800 rounded-xl animate-pulse" />))}</div>;
@@ -281,9 +281,9 @@ export function StudentResultsPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="font-medium text-sm text-zinc-900 dark:text-white">{r.lesson_title}</h3>
-                  <p className="text-xs text-zinc-500">{r.score}/{r.total_questions}</p>
+                  <p className="text-xs text-zinc-500">{r.score}/{r.total_score}</p>
                 </div>
-                <span className="text-sm font-bold text-zinc-900 dark:text-white">{r.score !== null && r.total_questions ? Math.round((r.score / r.total_questions) * 100) : 0}%</span>
+                <span className="text-sm font-bold text-zinc-900 dark:text-white">{r.score !== null && r.total_score ? Math.round((r.score / r.total_score) * 100) : 0}%</span>
                 <span className="text-xs text-zinc-400 shrink-0">{r.created_at ? new Date(r.created_at).toLocaleDateString() : ''}</span>
               </CardContent>
             </Card>
@@ -297,27 +297,110 @@ export function StudentResultsPage() {
 /* ─── Certificates Page ─── */
 export function StudentCertificatesPage() {
   const [certs, setCerts] = useState<any[]>([]);
+  const [eligible, setEligible] = useState<{ course_id: string; title: string; progress: number; min_progress: number }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [requesting, setRequesting] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { setLoading(false); return; }
-        const { data } = await supabase.from('certificates').select('*').eq('user_id', user.id).order('issued_at', { ascending: false });
-        if (data) setCerts(data as any[]);
-      } catch (err: any) { toast.error(err.message || 'Failed to load certificates'); }
-      finally { setLoading(false); }
+  async function load() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
+      const [{ data: certData }, { data: enrData }] = await Promise.all([
+        supabase.from('certificates').select('*, course:courses(title, slug, image)').eq('user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('enrollments').select('course_id, progress, status, course:courses(title, certificate_min_progress)').eq('user_id', user.id).in('status', ['active', 'completed']),
+      ]);
+      const certRows = (certData || []) as any[];
+      setCerts(certRows);
+      const taken = new Set(certRows.filter((c) => c.status !== 'revoked').map((c) => c.course_id));
+      setEligible(
+        ((enrData || []) as any[])
+          .filter((e) => {
+            const min = Number(e.course?.certificate_min_progress ?? 100);
+            return !taken.has(e.course_id) && Number(e.progress ?? 0) >= min;
+          })
+          .map((e) => ({
+            course_id: e.course_id,
+            title: e.course?.title || 'Course',
+            progress: Number(e.progress ?? 0),
+            min_progress: Number(e.course?.certificate_min_progress ?? 100),
+          })),
+      );
+    } catch (err: any) { toast.error(err.message || 'Failed to load certificates'); }
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => { void load(); }, []);
+
+  async function requestCert(courseId: string) {
+    setRequesting(courseId);
+    try {
+      await supabase.rpc('request_certificate', { p_course_id: courseId });
+      toast.success('Certificate requested — an administrator will review it shortly.');
+      await load();
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not request certificate');
+    } finally {
+      setRequesting(null);
     }
-    load();
-  }, []);
+  }
+
+  async function downloadCert(cert: any) {
+    const { data: { user } } = await supabase.auth.getUser();
+    let studentName = user?.email || 'Student';
+    if (user) {
+      const { data: profile } = await supabase.from('profiles').select('full_name').eq('user_id', user.id).maybeSingle();
+      if (profile?.full_name) studentName = profile.full_name;
+    }
+    try {
+      const { downloadCertificatePdf } = await import('@/services/certificatePdf');
+      await downloadCertificatePdf({
+        studentName,
+        courseTitle: cert.course?.title || 'Course',
+        certificateCode: cert.certificate_code,
+        issuedAt: cert.issued_at,
+      });
+    } catch {
+      toast.error('Failed to generate PDF');
+    }
+  }
+
+  const statusBadge = (cert: any) => {
+    if (cert.status === 'revoked' || cert.revoked) return <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-0">Revoked</Badge>;
+    if (cert.status === 'pending') return <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 border-0">Pending approval</Badge>;
+    return <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 border-0">Active</Badge>;
+  };
 
   if (loading) return <div className="space-y-4">{[0, 1, 2].map((i) => (<div key={i} className="h-48 bg-zinc-100 dark:bg-zinc-800 rounded-xl animate-pulse" />))}</div>;
 
   return (
     <motion.div initial="hidden" animate="visible" className="space-y-6">
-      <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Certificates</h1>
-      {certs.length === 0 ? (
+      <div>
+        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Certificates</h1>
+        <p className="text-sm text-zinc-500 mt-1">Earn certificates by completing your courses.</p>
+      </div>
+
+      {eligible.length > 0 && (
+        <Card className="border-emerald-200 dark:border-emerald-900/50">
+          <CardContent className="p-5">
+            <h2 className="text-sm font-semibold text-zinc-900 dark:text-white mb-3">Ready to certify</h2>
+            <div className="space-y-2">
+              {eligible.map((e) => (
+                <div key={e.course_id} className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-zinc-900 dark:text-white">{e.title}</p>
+                    <p className="text-xs text-zinc-500">{e.progress}% complete</p>
+                  </div>
+                  <Button size="sm" className="shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white" disabled={requesting === e.course_id} onClick={() => void requestCert(e.course_id)}>
+                    {requesting === e.course_id ? <Spinner size={14} className="animate-spin" /> : 'Request certificate'}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {certs.length === 0 && eligible.length === 0 ? (
         <Card className="border-dashed border-zinc-300 dark:border-zinc-700"><CardContent className="p-10 text-center">
           <Certificate size={48} className="mx-auto text-zinc-300 mb-4" />
           <h3 className="font-semibold text-zinc-900 dark:text-white mb-1">No certificates yet</h3>
@@ -326,16 +409,20 @@ export function StudentCertificatesPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {certs.map((cert) => (
-            <Card key={cert.id} className="border-zinc-200 dark:border-zinc-800">
+            <Card key={cert.id} className={`border-zinc-200 dark:border-zinc-800 ${cert.status === 'revoked' || cert.revoked ? 'opacity-60' : ''}`}>
               <CardContent className="p-6 text-center">
                 <div className="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-100 to-amber-100 dark:from-emerald-900/30 dark:to-amber-900/30 flex items-center justify-center mx-auto mb-4">
                   <Certificate size={32} className="text-emerald-600" />
                 </div>
-                <h3 className="font-semibold text-zinc-900 dark:text-white mb-1">{cert.course_title || 'Course Certificate'}</h3>
-                <p className="text-xs text-zinc-500 mb-4">Issued {cert.issued_at ? new Date(cert.issued_at).toLocaleDateString() : 'N/A'}</p>
-                <Button size="sm" variant="outline" className="gap-2 text-emerald-600">
-                  <FilePdf size={14} /> Download PDF
-                </Button>
+                <h3 className="font-semibold text-zinc-900 dark:text-white mb-1">{cert.course?.title || 'Course Certificate'}</h3>
+                <p className="text-xs text-zinc-500 mb-2">{cert.certificate_code}</p>
+                {statusBadge(cert)}
+                <p className="text-xs text-zinc-500 mt-3">{cert.issued_at ? `Issued ${new Date(cert.issued_at).toLocaleDateString()}` : 'Awaiting approval'}</p>
+                {cert.status === 'active' && !cert.revoked && (
+                  <Button size="sm" variant="outline" className="gap-2 text-emerald-600 mt-4" onClick={() => void downloadCert(cert)}>
+                    <FilePdf size={14} /> Download PDF
+                  </Button>
+                )}
               </CardContent>
             </Card>
           ))}

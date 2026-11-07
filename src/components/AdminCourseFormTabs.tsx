@@ -5,7 +5,7 @@ import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import type { Tables } from '@/integrations/supabase/types';
 
-const CURRENCIES = ['GHS', 'USD', 'EUR', 'GBP', 'NGN', 'KES', 'ZAR'];
+export const CURRENCIES = ['GHS', 'USD', 'EUR', 'GBP', 'NGN', 'KES', 'ZAR'];
 const DIFFICULTIES = ['beginner', 'intermediate', 'advanced', 'all_levels'];
 const STATUSES = ['draft', 'published', 'archived'] as const;
 
@@ -28,6 +28,7 @@ export interface FormData {
   original_price: number;
   currency: string;
   duration_hours: number;
+  certificate_min_progress: number;
   image: string;
   featured: boolean;
   status: 'draft' | 'published' | 'archived';
@@ -126,6 +127,14 @@ export function PricingTab({ form, onUpdateField }: TabProps) {
           <Input label="Duration (hours)" type="number" min={0} value={form.duration_hours} onChange={(e) => onUpdateField('duration_hours', parseInt(e.target.value) || 0)} placeholder="e.g. 12" />
           <Select label="Difficulty" value={form.level} onChange={(v) => onUpdateField('level', v)} options={DIFFICULTIES.map((d) => ({ value: d, label: d.replace('_', ' ') }))} />
         </div>
+        <Input
+          label="Certificate min. progress (%)"
+          type="number" min={0} max={100}
+          value={form.certificate_min_progress}
+          onChange={(e) => onUpdateField('certificate_min_progress', Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))}
+          placeholder="100"
+        />
+        <p className="text-xs text-zinc-400 -mt-2">Minimum course progress a student must reach before requesting a certificate.</p>
       </CardContent>
     </Card>
   );

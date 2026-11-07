@@ -147,9 +147,11 @@ export function LoginPage() {
       const signedInProfile = await signIn(email, password);
       const redirectTo = signedInProfile.role === 'admin' || signedInProfile.role === 'super_admin'
         ? ROUTES.adminDashboard
-        : signedInProfile.role === 'student'
-          ? ROUTES.studentDashboard
-          : ROUTES.home;
+        : signedInProfile.role === 'instructor'
+          ? ROUTES.instructorDashboard
+          : signedInProfile.role === 'student'
+            ? ROUTES.studentDashboard
+            : ROUTES.home;
       navigate(redirectTo);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Invalid email or password');

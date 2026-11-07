@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ROUTES } from '@/constants/navigation';
 import * as AssessmentService from '@/services/assessmentService';
+import { downloadCertificatePdf } from '@/services/certificatePdf';
 import { toast } from 'sonner';
 
 /* ─── Public Certificate Verification Page ─── */
@@ -27,13 +28,23 @@ export function CertificateVerifyPage() {
     setLoading(true);
     try {
       const data = await AssessmentService.verifyCertificate(certCode);
-      setResult(data);
+      setResult(data && data.found ? data : null);
     } catch {
       setResult(null);
     } finally {
       setLoading(false);
     }
   }
+
+  const handleDownload = () => {
+    if (!result?.valid) return;
+    void downloadCertificatePdf({
+      studentName: result.student_name || 'Student',
+      courseTitle: result.course_title || 'Course',
+      certificateCode: result.certificate_code || '',
+      issuedAt: result.issued_at,
+    }).catch(() => toast.error('Failed to generate PDF'));
+  };
 
   return (
     <motion.div initial="hidden" animate="visible" className="max-w-2xl mx-auto space-y-6">
@@ -60,7 +71,7 @@ export function CertificateVerifyPage() {
       </Card>
 
       {/* Verified result */}
-      {result && (
+      {result && result.valid && (
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
           <Card className="border-emerald-200 dark:border-emerald-800 overflow-hidden">
             <div className="bg-gradient-to-r from-emerald-500 to-teal-500 h-2" />
@@ -69,20 +80,20 @@ export function CertificateVerifyPage() {
                 <CheckCircle size={40} weight="bold" className="text-emerald-600" />
               </div>
               <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 border-0 mb-4">Verified ✓</Badge>
-              <h2 className="text-xl font-bold text-zinc-900 dark:text-white mb-1">{result.course?.title}</h2>
+              <h2 className="text-xl font-bold text-zinc-900 dark:text-white mb-1">{result.course_title}</h2>
               <p className="text-sm text-zinc-500 mb-6">Certificate of Completion</p>
 
               <div className="grid grid-cols-2 gap-4 text-left max-w-md mx-auto">
                 <div className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
                   <p className="text-xs text-zinc-400 mb-1">Recipient</p>
                   <p className="text-sm font-medium text-zinc-900 dark:text-white flex items-center gap-1">
-                    <UserCircle size={14} /> {result.user?.full_name || 'N/A'}
+                    <UserCircle size={14} /> {result.student_name || 'N/A'}
                   </p>
                 </div>
                 <div className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
                   <p className="text-xs text-zinc-400 mb-1">Course</p>
                   <p className="text-sm font-medium text-zinc-900 dark:text-white flex items-center gap-1">
-                    <BookOpen size={14} /> {result.course?.title || 'N/A'}
+                    <BookOpen size={14} /> {result.course_title || 'N/A'}
                   </p>
                 </div>
                 <div className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
@@ -96,9 +107,29 @@ export function CertificateVerifyPage() {
               </div>
 
               <div className="flex gap-3 justify-center mt-6">
-                <Button variant="outline" className="gap-2"><Download size={16} /> Download PDF</Button>
-                <Button variant="outline" className="gap-2"><Eye size={16} /> View Details</Button>
+                <Button variant="outline" className="gap-2" onClick={handleDownload}>
+                  <Download size={16} /> Download PDF
+                </Button>
               </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* Found but not valid (pending approval or revoked) */}
+      {result && result.found && !result.valid && (
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
+          <Card className="border-amber-200 dark:border-amber-900/50">
+            <CardContent className="p-8 text-center">
+              <Prohibit size={48} className="mx-auto text-amber-500 mb-4" />
+              <h3 className="font-semibold text-zinc-900 dark:text-white mb-2">
+                {result.status === 'revoked' ? 'Certificate Revoked' : 'Certificate Pending'}
+              </h3>
+              <p className="text-sm text-zinc-500">
+                {result.status === 'revoked'
+                  ? 'This certificate has been revoked and is no longer valid.'
+                  : 'This certificate has been requested but not yet approved by an administrator.'}
+              </p>
             </CardContent>
           </Card>
         </motion.div>
@@ -150,8 +181,25 @@ export function AdminCertificatesPage() {
     c.certificate_code.toLowerCase().includes(search.toLowerCase())
   );
 
+  const handleApprove = async (id: string) => {
+    try {
+      await AssessmentService.approveCertificate(id);
+      toast.success('Certificate approved and issued');
+      window.location.reload();
+    } catch (err: any) { toast.error(err.message || 'Failed to approve'); }
+  };
+
+  const handleReject = async (id: string) => {
+    if (!confirm('Reject this certificate request? The student can request again later.')) return;
+    try {
+      await AssessmentService.rejectCertificate(id);
+      toast.success('Certificate request rejected');
+      window.location.reload();
+    } catch (err: any) { toast.error(err.message || 'Failed to reject'); }
+  };
+
   const handleRevoke = async (id: string) => {
-    if (!confirm('Revoke this certificate?')) return;
+    if (!confirm('Revoke this certificate? It will immediately fail public verification.')) return;
     try {
       await AssessmentService.revokeCertificate(id);
       toast.success('Certificate revoked');
@@ -166,7 +214,7 @@ export function AdminCertificatesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Certificates</h1>
-          <p className="text-sm text-zinc-500 mt-1">{certs.length} total certificates issued</p>
+          <p className="text-sm text-zinc-500 mt-1">{certs.length} certificates on record</p>
         </div>
       </div>
 
@@ -196,13 +244,25 @@ export function AdminCertificatesPage() {
                 </div>
                 <div className="text-right shrink-0 space-x-2">
                   <span className="text-xs text-zinc-400">{cert.issued_at ? new Date(cert.issued_at).toLocaleDateString() : ''}</span>
-                  {cert.revoked ? (
+                  {cert.status === 'pending' ? (
+                    <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 border-0">Pending</Badge>
+                  ) : cert.status === 'revoked' || cert.revoked ? (
                     <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-0">Revoked</Badge>
                   ) : (
                     <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 border-0">Active</Badge>
                   )}
-                  {!cert.revoked && (
-                    <button onClick={() => handleRevoke(cert.id)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-zinc-400 hover:text-red-600 transition-colors">
+                  {cert.status === 'pending' && (
+                    <>
+                      <button onClick={() => handleApprove(cert.id)} className="p-1.5 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-zinc-400 hover:text-emerald-600 transition-colors" title="Approve">
+                        <CheckCircle size={16} />
+                      </button>
+                      <button onClick={() => handleReject(cert.id)} className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-600 transition-colors" title="Reject">
+                        <XCircle size={16} />
+                      </button>
+                    </>
+                  )}
+                  {cert.status === 'active' && !cert.revoked && (
+                    <button onClick={() => handleRevoke(cert.id)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-zinc-400 hover:text-red-600 transition-colors" title="Revoke">
                       <Trash size={16} />
                     </button>
                   )}

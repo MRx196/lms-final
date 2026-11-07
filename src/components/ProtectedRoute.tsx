@@ -5,7 +5,7 @@ import { ROUTES } from '@/constants/navigation';
 import { CircleNotch } from '@phosphor-icons/react';
 
 interface ProtectedRouteProps {
-  requiredRole?: 'student' | 'admin';
+  requiredRole?: 'student' | 'admin' | 'instructor';
   layout?: ComponentType<{ children: ReactNode }>;
 }
 
@@ -41,13 +41,23 @@ export function ProtectedRoute({ requiredRole, layout: Layout }: ProtectedRouteP
   }
 
   const isAdmin = profile.role === 'admin' || profile.role === 'super_admin';
+  const homeForRole = isAdmin
+    ? ROUTES.adminDashboard
+    : profile.role === 'instructor'
+      ? ROUTES.instructorDashboard
+      : ROUTES.studentDashboard;
+
   if (requiredRole === 'admin' && !isAdmin) {
+    if (profile.role === 'student') return <Navigate to={ROUTES.studentDashboard} replace />;
+    if (profile.role === 'instructor') return <Navigate to={ROUTES.instructorDashboard} replace />;
+    return <Navigate to={ROUTES.home} replace />;
+  }
+  if (requiredRole === 'instructor' && profile.role !== 'instructor' && !isAdmin) {
     if (profile.role === 'student') return <Navigate to={ROUTES.studentDashboard} replace />;
     return <Navigate to={ROUTES.home} replace />;
   }
   if (requiredRole === 'student' && profile.role !== 'student') {
-    if (isAdmin) return <Navigate to={ROUTES.adminDashboard} replace />;
-    return <Navigate to={ROUTES.home} replace />;
+    return <Navigate to={homeForRole} replace />;
   }
 
   if (Layout) {

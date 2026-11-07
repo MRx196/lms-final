@@ -30,6 +30,12 @@ export const ROUTES = {
   studentNotifications: '/student/notifications',
   studentProfile: '/student/profile',
   studentSettings: '/student/settings',
+  instructorDashboard: '/instructor/dashboard',
+  instructorCourses: '/instructor/courses',
+  instructorCourseBuilder: '/instructor/courses/:courseId/builder',
+  instructorGrading: '/instructor/grading',
+  instructorNotifications: '/instructor/notifications',
+  instructorProfile: '/instructor/profile',
   adminDashboard: '/admin/dashboard',
   adminStudents: '/admin/students',
   adminCourses: '/admin/courses',
@@ -71,6 +77,14 @@ export const studentNavItems: NavItem[] = [
   { label: 'Notifications', path: ROUTES.studentNotifications, icon: 'Bell' },
   { label: 'Profile', path: ROUTES.studentProfile, icon: 'User' },
   { label: 'Settings', path: ROUTES.studentSettings, icon: 'GearSix' },
+];
+
+export const instructorNavItems: NavItem[] = [
+  { label: 'Dashboard', path: ROUTES.instructorDashboard, icon: 'House' },
+  { label: 'My Courses', path: ROUTES.instructorCourses, icon: 'BookOpen' },
+  { label: 'Grading', path: ROUTES.instructorGrading, icon: 'PencilSimpleLine' },
+  { label: 'Notifications', path: ROUTES.instructorNotifications, icon: 'Bell' },
+  { label: 'Profile', path: ROUTES.instructorProfile, icon: 'User' },
 ];
 
 export const adminNavItems: NavItem[] = [
