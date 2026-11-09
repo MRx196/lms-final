@@ -186,8 +186,8 @@ export function AdminCourseForm() {
         image: form.image || null,
         featured: form.featured,
         status: targetStatus as 'draft' | 'published' | 'archived',
-        requirements: form.requirements.length > 0 ? form.requirements : null,
-        learning_objectives: form.learning_objectives.length > 0 ? form.learning_objectives : null,
+        requirements: form.requirements,
+        learning_objectives: form.learning_objectives,
       };
 
       if (isEditing && courseId) {
