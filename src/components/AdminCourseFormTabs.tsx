@@ -58,29 +58,32 @@ interface TabProps {
   onRemoveObj: (i: number) => void;
 }
 
-function Input({ label, required, ...props }: { label: string; required?: boolean } & React.InputHTMLAttributes<HTMLInputElement>) {
+function Input({ label, required, id, ...props }: { label: string; required?: boolean } & React.InputHTMLAttributes<HTMLInputElement>) {
+  const inputId = id || `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
   return (
     <div>
-      <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">{label} {required && <span className="text-red-400">*</span>}</label>
-      <input className="w-full h-10 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30" {...props} />
+      <label htmlFor={inputId} className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">{label} {required && <span className="text-red-400">*</span>}</label>
+      <input id={inputId} className="w-full h-10 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30" {...props} />
     </div>
   );
 }
 
-function Textarea({ label, required, ...props }: { label: string; required?: boolean } & React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+function Textarea({ label, required, id, ...props }: { label: string; required?: boolean } & React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  const inputId = id || `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
   return (
     <div>
-      <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">{label} {required && <span className="text-red-400">*</span>}</label>
-      <textarea className="w-full px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 resize-none" {...props} />
+      <label htmlFor={inputId} className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">{label} {required && <span className="text-red-400">*</span>}</label>
+      <textarea id={inputId} className="w-full px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 resize-none" {...props} />
     </div>
   );
 }
 
 function Select({ label, required, value, onChange, options, placeholder }: { label: string; required?: boolean; value: string; onChange: (v: string) => void; options: { value: string; label: string }[]; placeholder?: string }) {
+  const inputId = `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
   return (
     <div>
-      <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">{label} {required && <span className="text-red-400">*</span>}</label>
-      <select value={value} onChange={(e) => onChange(e.target.value)} className="w-full h-10 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30">
+      <label htmlFor={inputId} className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">{label} {required && <span className="text-red-400">*</span>}</label>
+      <select id={inputId} value={value} onChange={(e) => onChange(e.target.value)} className="w-full h-10 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30">
         {placeholder && <option value="">{placeholder}</option>}
         {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
@@ -98,8 +101,8 @@ export function BasicInfoTab({ form, onTitleChange, onSlugEdit, onUpdateField }:
       <CardContent className="space-y-4">
         <Input label="Title" required value={form.title} onChange={(e) => onTitleChange(e.target.value)} placeholder="e.g. Introduction to Web Development" />
         <div>
-          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Slug *</label>
-          <input type="text" value={form.slug} onChange={(e) => onSlugEdit(e.target.value)} placeholder="intro-to-web-development" className="w-full h-10 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 font-mono" />
+          <label htmlFor="field-slug" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Slug *</label>
+          <input id="field-slug" type="text" value={form.slug} onChange={(e) => onSlugEdit(e.target.value)} placeholder="intro-to-web-development" className="w-full h-10 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 font-mono" />
           <p className="text-xs text-zinc-400 mt-1">URL-friendly identifier. Auto-generated from title.</p>
         </div>
         <Textarea label="Short Description" required value={form.description} onChange={(e) => onUpdateField('description', e.target.value)} placeholder="Brief summary of the course (2-3 sentences)" rows={3} />
@@ -153,8 +156,8 @@ export function OrganizationTab({ form, categories, instructors, onUpdateField, 
           <Select label="Instructor" required value={form.instructor_id} onChange={(v) => onUpdateField('instructor_id', v)} placeholder="Select instructor" options={instructors.map((i) => ({ value: i.id, label: i.name }))} />
         </div>
         <div>
-          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Thumbnail URL *</label>
-          <input type="text" value={form.image} onChange={(e) => onUpdateField('image', e.target.value)} placeholder="https://example.com/course-thumbnail.jpg" className="w-full h-10 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
+          <label htmlFor="field-thumbnail-url" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Thumbnail URL *</label>
+          <input id="field-thumbnail-url" type="text" value={form.image} onChange={(e) => onUpdateField('image', e.target.value)} placeholder="https://example.com/course-thumbnail.jpg" className="w-full h-10 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
           {form.image && (
             <div className="mt-2 w-32 h-20 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-800">
               <img src={form.image} alt="Preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
@@ -163,14 +166,14 @@ export function OrganizationTab({ form, categories, instructors, onUpdateField, 
         </div>
         <div className="flex items-center justify-between">
           <div>
-            <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Featured</label>
+            <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Featured</p>
             <p className="text-xs text-zinc-400">Display this course on the homepage</p>
           </div>
           <Switch checked={form.featured} onCheckedChange={(v) => onUpdateField('featured', v)} />
         </div>
         <Separator />
         <div>
-          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Status</label>
+          <p className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Status</p>
           <div className="flex items-center gap-2">
             {STATUSES.map((s) => (
               <button
@@ -201,7 +204,7 @@ export function CurriculumTab({ form, newReq, newObj, onSetNewReq, onAddReq, onR
       </CardHeader>
       <CardContent className="space-y-6">
         <div>
-          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Requirements</label>
+          <p className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Requirements</p>
           <div className="flex gap-2 mb-2">
             <input type="text" value={newReq} onChange={(e) => onSetNewReq(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onAddReq(); } }} placeholder="e.g. Basic HTML knowledge" className="flex-1 h-10 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
             <Button variant="outline" onClick={onAddReq} className="gap-1 shrink-0"><Plus size={16} /> Add</Button>
@@ -217,7 +220,7 @@ export function CurriculumTab({ form, newReq, newObj, onSetNewReq, onAddReq, onR
           </div>
         </div>
         <div>
-          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Learning Objectives</label>
+          <p className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Learning Objectives</p>
           <div className="flex gap-2 mb-2">
             <input type="text" value={newObj} onChange={(e) => onSetNewObj(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onAddObj(); } }} placeholder="e.g. Build a responsive website" className="flex-1 h-10 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
             <Button variant="outline" onClick={onAddObj} className="gap-1 shrink-0"><Plus size={16} /> Add</Button>
