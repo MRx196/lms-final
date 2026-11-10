@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ArrowLeft, FloppyDisk, Eye, CheckCircle } from '@phosphor-icons/react';
+import { ArrowLeft, FloppyDisk, CheckCircle } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { ROUTES } from '@/constants/navigation';
 import { getCourseCategories, getInstructors, getAdminCourseById, createCourse, updateCourse } from '@/services/courseService';
@@ -17,15 +16,6 @@ import type { Tables } from '@/integrations/supabase/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.05 } },
-};
-const itemVariants = {
-  hidden: { opacity: 0, y: 16 },
-  visible: { opacity: 1, y: 0, transition: { ease: 'easeOut' as const } },
-};
 
 const defaultForm: FormData = {
   title: '',
@@ -209,13 +199,13 @@ export function AdminCourseForm() {
 
   if (loading) {
     return (
-      <motion.div initial="hidden" animate="visible" variants={containerVariants} className="space-y-6">
+      <div className="space-y-6">
         <div className="animate-pulse space-y-4">
           <div className="h-8 w-48 bg-zinc-200 dark:bg-zinc-800 rounded-lg" />
           <div className="h-4 w-72 bg-zinc-200 dark:bg-zinc-800 rounded-lg" />
           <div className="h-96 bg-zinc-200 dark:bg-zinc-800 rounded-xl" />
         </div>
-      </motion.div>
+      </div>
     );
   }
 
@@ -238,9 +228,9 @@ export function AdminCourseForm() {
   };
 
   return (
-    <motion.div initial="hidden" animate="visible" variants={containerVariants}>
+    <div className="space-y-6">
       {/* Header */}
-      <motion.div variants={itemVariants} className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Link
             to={ROUTES.adminCourses}
@@ -280,10 +270,10 @@ export function AdminCourseForm() {
             {isEditing ? 'Update' : 'Create'}
           </Button>
         </div>
-      </motion.div>
+      </div>
 
       {/* Form summary card */}
-      <motion.div variants={itemVariants} className="mb-6">
+      <div className="mb-6">
         <Card className="border-zinc-200 dark:border-zinc-800">
           <CardContent className="p-4 flex items-center gap-4 text-sm">
             <div className="flex items-center gap-2 text-zinc-500">
@@ -312,10 +302,10 @@ export function AdminCourseForm() {
             </div>
           </CardContent>
         </Card>
-      </motion.div>
+      </div>
 
       {/* Tabs */}
-      <motion.div variants={itemVariants}>
+      <div>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="w-full justify-start bg-zinc-100 dark:bg-zinc-800/50 p-1 rounded-lg overflow-x-auto">
             <TabsTrigger value="basic" className="data-[state=active]:bg-white dark:data-[state=active]:bg-zinc-900">
@@ -348,10 +338,10 @@ export function AdminCourseForm() {
             <CurriculumTab {...tabProps} />
           </TabsContent>
         </Tabs>
-      </motion.div>
+      </div>
 
       {/* Bottom actions */}
-      <motion.div variants={itemVariants} className="mt-8 flex items-center justify-between">
+      <div className="mt-8 flex items-center justify-between">
         <Link
           to={ROUTES.adminCourses}
           className="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors"
@@ -381,7 +371,7 @@ export function AdminCourseForm() {
             {isEditing ? 'Update Course' : 'Create Course'}
           </Button>
         </div>
-      </motion.div>
-    </motion.div>
+      </div>
+    </div>
   );
 }
