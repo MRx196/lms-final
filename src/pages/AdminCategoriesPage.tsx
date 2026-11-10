@@ -57,7 +57,7 @@ export function AdminCategoriesPage() {
     try {
       const [cats, crs] = await Promise.all([
         supabase
-          .from('course_categories')
+          .from('categories')
           .select('id,name,slug,description,sort_order')
           .order('sort_order', { ascending: true })
           .order('name'),
@@ -133,11 +133,11 @@ export function AdminCategoriesPage() {
         sort_order: Number(form.sort_order) || 0,
       };
       if (editing) {
-        const { error } = await supabase.from('course_categories').update(payload).eq('id', editing.id);
+        const { error } = await supabase.from('categories').update(payload).eq('id', editing.id);
         if (error) throw error;
         toast.success('Category updated');
       } else {
-        const { error } = await supabase.from('course_categories').insert(payload);
+        const { error } = await supabase.from('categories').insert(payload);
         if (error) throw error;
         toast.success('Category added');
       }
@@ -159,7 +159,7 @@ export function AdminCategoriesPage() {
       return;
     }
     try {
-      const { error } = await supabase.from('course_categories').delete().eq('id', deleting.id);
+      const { error } = await supabase.from('categories').delete().eq('id', deleting.id);
       if (error) throw error;
       toast.success('Category deleted');
       setDeleting(null);
