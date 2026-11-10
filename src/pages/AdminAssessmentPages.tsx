@@ -141,9 +141,21 @@ export function AdminAssignmentsPage() {
     try {
       const { data } = await supabase
         .from('assignment_submissions')
-        .select('*, profiles(full_name, email), assignments(title, max_score)')
+        .select('*')
         .eq('assignment_id', assignment.id);
-      setSubmissions(data || []);
+      
+      // Enrich with profile data
+      const enriched = await Promise.all(
+        (data || []).map(async (sub: any) => {
+          const { data: profile } = await supabase.from('profiles').select('full_name, email').eq('user_id', sub.user_id).single();
+          return {
+            ...sub,
+            profiles: profile || null,
+            assignments: { title: assignment.title, max_score: assignment.max_score }
+          };
+        })
+      );
+      setSubmissions(enriched);
       setSubmissionsOpen(true);
     } catch (err: any) {
       toast.error(err.message || 'Failed to load submissions');
