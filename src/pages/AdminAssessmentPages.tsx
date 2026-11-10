@@ -99,6 +99,8 @@ export function AdminAssignmentsPage() {
 
   const handleCreate = async () => {
     if (!formTitle || !formCourseId) { toast.error('Title and course required'); return; }
+    console.log('[handleCreate] formCourseId:', formCourseId, 'type:', typeof formCourseId);
+    console.log('[handleCreate] courses:', courses);
     setSaving(true);
     try {
       const fileTypes = formFileTypes ? formFileTypes.split(',').map(s => s.trim()).filter(Boolean) : [];
