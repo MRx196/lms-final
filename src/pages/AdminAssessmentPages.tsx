@@ -5,7 +5,7 @@ import {
   CheckCircle, XCircle, Clock, WarningCircle, ArrowRight,
   MagnifyingGlass, FunnelSimple, GraduationCap, BookOpen,
   NotePencil, Spinner, UploadSimple, PaperPlaneTilt, ProhibitInset,
-  User,
+  User, Check,
 } from '@phosphor-icons/react';
 import { ROUTES } from '@/constants/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -81,7 +81,23 @@ export function AdminAssignmentsPage() {
           AssessmentService.getAllAssignments(),
           supabase.from('courses').select('*').order('title'),
         ]);
-        setAssignments(assignData || []);
+        const assignmentsWithStats = await Promise.all(
+          (assignData || []).map(async (a: any) => {
+            const { data: subs } = await supabase
+              .from('assignment_submissions')
+              .select('status, score')
+              .eq('assignment_id', a.id);
+            const submissionCount = subs?.length || 0;
+            const gradedSubs = subs?.filter((s: any) => s.status === 'graded') || [];
+            const gradedCount = gradedSubs.length || 0;
+            const hasGraded = gradedCount > 0;
+            const avgScore = gradedCount > 0 
+              ? Math.round(gradedSubs.reduce((sum: number, s: any) => sum + (s.score || 0), 0) / gradedCount)
+              : null;
+            return { ...a, submissionCount, gradedCount, hasGraded, avgScore };
+          })
+        );
+        setAssignments(assignmentsWithStats);
         setCourses((courseData.data || []) as CourseRow[]);
       } catch (err: any) { toast.error(err.message || 'Failed to load'); }
       finally { setLoading(false); }
@@ -305,9 +321,9 @@ export function AdminAssignmentsPage() {
       ) : (
         <div className="space-y-3">
           {filtered.map(a => (
-            <Card key={a.id} className="border-zinc-200 dark:border-zinc-800">
+            <Card key={a.id} className={`border-zinc-200 dark:border-zinc-800 ${a.hasGraded ? 'border-emerald-300 dark:border-emerald-700' : ''}`}>
               <CardContent className="p-4 flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${a.hasGraded ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800'}`}>
                   <ClipboardText size={20} />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -315,6 +331,11 @@ export function AdminAssignmentsPage() {
                   <p className="text-xs text-zinc-500">{a.course?.title || 'Unknown course'}</p>
                 </div>
                 <div className="text-right shrink-0 flex items-center gap-2">
+                  {a.hasGraded && (
+                    <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 border-0 text-xs">
+                      {a.avgScore || 0}/{a.max_score ?? '?'} avg
+                    </Badge>
+                  )}
                   {a.due_date && <span className="text-xs text-zinc-400">{new Date(a.due_date).toLocaleDateString()}</span>}
                   <span className="text-xs text-zinc-400">/{a.max_score ?? '?'} pts</span>
                   <button onClick={() => openSubmissions(a)} className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-zinc-400 hover:text-blue-600 transition-colors" title="View submissions">
@@ -342,12 +363,12 @@ export function AdminAssignmentsPage() {
           ) : (
             <div className="space-y-3 py-2">
               {submissions.map((sub: any) => (
-                <Card key={sub.id} className="border-zinc-200 dark:border-zinc-800">
+                <Card key={sub.id} className={`border-zinc-200 dark:border-zinc-800 ${sub.status === 'graded' ? 'border-emerald-300 dark:border-emerald-700' : ''}`}>
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600 font-bold">
-                          {(sub.profiles?.full_name || sub.user_id)[0]?.toUpperCase() || '?'}
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${sub.status === 'graded' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800'}`}>
+                          {sub.status === 'graded' ? <Check size={20} weight="bold" /> : (sub.profiles?.full_name || sub.user_id)[0]?.toUpperCase() || '?'}
                         </div>
                         <div>
                           <p className="font-medium text-sm text-zinc-900 dark:text-white">{sub.profiles?.full_name || 'Student'}</p>
@@ -355,7 +376,11 @@ export function AdminAssignmentsPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
-                        {sub.score !== null && <p className="text-sm font-bold text-zinc-900 dark:text-white">{sub.score}/{sub.assignments?.max_score ?? '?'}</p>}
+                        {sub.score !== null ? (
+                          <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{sub.score}/{sub.assignments?.max_score ?? '?'}</p>
+                        ) : (
+                          <p className="text-sm text-zinc-400">Not graded</p>
+                        )}
                         {statusBadge(sub.status)}
                         <Button onClick={() => { setSubmissionsOpen(false); openGrader(sub); }} size="sm" variant="outline" className="gap-1">
                           <Pencil size={14} /> Grade
