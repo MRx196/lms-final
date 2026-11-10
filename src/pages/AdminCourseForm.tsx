@@ -149,8 +149,8 @@ export function AdminCourseForm() {
       const missing: string[] = [];
       if (!form.description) missing.push('Short Description');
       if (!form.category_id) missing.push('Category');
-      if (!form.instructor_id) missing.push('Instructor');
       if (form.price <= 0) missing.push('Price');
+      // Instructor is optional for publishing
       if (missing.length > 0) {
         toast.error(`Cannot publish. Missing: ${missing.join(', ')}`);
         return;
@@ -289,11 +289,6 @@ export function AdminCourseForm() {
             <div className="flex items-center gap-2 text-zinc-500">
               <CheckCircle size={16} className={form.category_id ? 'text-emerald-500' : 'text-zinc-300'} />
               <span className={form.category_id ? 'text-zinc-900 dark:text-white' : ''}>Category</span>
-            </div>
-            <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-800" />
-            <div className="flex items-center gap-2 text-zinc-500">
-              <CheckCircle size={16} className={form.instructor_id ? 'text-emerald-500' : 'text-zinc-300'} />
-              <span className={form.instructor_id ? 'text-zinc-900 dark:text-white' : ''}>Instructor</span>
             </div>
             <div className="w-px h-4 bg-zinc-200 dark:bg-zinc-800" />
             <div className="flex items-center gap-2 text-zinc-500">

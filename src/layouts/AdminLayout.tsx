@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { House, Users, BookOpen, Wallet, ChartLine, GearSix, SignOut, Megaphone, List, GraduationCap, DotsThreeVertical, Scroll, ShieldCheck } from '@phosphor-icons/react';
+import { House, Users, BookOpen, Wallet, ChartLine, GearSix, SignOut, Megaphone, List, GraduationCap, DotsThreeVertical, Scroll, ShieldCheck, SquaresFour } from '@phosphor-icons/react';
 import { ROUTES, adminNavItems } from '@/constants/navigation';
 import { MobileDrawer } from '@/components/MobileDrawer';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useAuth } from '@/contexts/AuthContext';
 
 const IconMap: Record<string, React.ElementType> = {
-  House, Users, BookOpen, Wallet, ChartLine, GearSix, Megaphone, Scroll, ShieldCheck
+  House, Users, BookOpen, Wallet, ChartLine, GearSix, Megaphone, Scroll, ShieldCheck, SquaresFour
 };
 
 export function AdminLayout() {

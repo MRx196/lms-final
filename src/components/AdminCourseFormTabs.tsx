@@ -153,10 +153,10 @@ export function OrganizationTab({ form, categories, instructors, onUpdateField, 
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Select label="Category" required value={form.category_id} onChange={(v) => onUpdateField('category_id', v)} placeholder="Select category" options={categories.map((c) => ({ value: c.id, label: c.name }))} />
-          <Select label="Instructor" required value={form.instructor_id} onChange={(v) => onUpdateField('instructor_id', v)} placeholder="Select instructor" options={instructors.map((i) => ({ value: i.id, label: i.name }))} />
+          <Select label="Instructor" value={form.instructor_id} onChange={(v) => onUpdateField('instructor_id', v)} placeholder="Select instructor (optional)" options={instructors.map((i) => ({ value: i.id, label: i.name }))} />
         </div>
         <div>
-          <label htmlFor="field-thumbnail-url" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Thumbnail URL *</label>
+          <label htmlFor="field-thumbnail-url" className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-1">Thumbnail URL</label>
           <input id="field-thumbnail-url" type="text" value={form.image} onChange={(e) => onUpdateField('image', e.target.value)} placeholder="https://example.com/course-thumbnail.jpg" className="w-full h-10 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
           {form.image && (
             <div className="mt-2 w-32 h-20 rounded-lg overflow-hidden border border-zinc-200 dark:border-zinc-800">

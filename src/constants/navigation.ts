@@ -57,6 +57,8 @@ export const ROUTES = {
   adminReports: '/admin/reports',
   adminAnnouncements: '/admin/announcements',
   adminSettings: '/admin/settings',
+  adminCategories: '/admin/categories',
+  adminInstructors: '/admin/instructors',
   notFound: '/404',
 } as const;
 
@@ -91,6 +93,8 @@ export const adminNavItems: NavItem[] = [
   { label: 'Dashboard', path: ROUTES.adminDashboard, icon: 'House' },
   { label: 'Students', path: ROUTES.adminStudents, icon: 'Users' },
   { label: 'Courses', path: ROUTES.adminCourses, icon: 'BookOpen' },
+  { label: 'Categories', path: ROUTES.adminCategories, icon: 'SquaresFour' },
+  { label: 'Instructors', path: ROUTES.adminInstructors, icon: 'GraduationCap' },
   { label: 'Assignments', path: ROUTES.adminAssignments, icon: 'ClipboardText' },
   { label: 'Quizzes', path: ROUTES.adminQuizzes, icon: 'Exam' },
   { label: 'Grading', path: ROUTES.adminGrading, icon: 'PencilSimpleLine' },
