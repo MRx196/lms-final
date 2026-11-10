@@ -133,12 +133,22 @@ export async function getAllAssignments() {
 }
 
 export async function createAssignment(data: Partial<AssignmentRow>) {
+  const payload = {
+    ...data,
+    max_score: data.max_score ?? 100,
+    allowed_file_types: data.allowed_file_types ?? [],
+    max_file_size_mb: data.max_file_size_mb ?? null,
+    submission_requirements: data.submission_requirements ?? null,
+  };
   const { data: result, error } = await supabase
     .from('assignments')
-    .insert({ ...data, max_score: data.max_score ?? 100 })
+    .insert(payload)
     .select()
     .single();
-  if (error) throw error;
+  if (error) {
+    console.error('[createAssignment] Supabase error:', error);
+    throw error;
+  }
   return result as AssignmentRow;
 }
 

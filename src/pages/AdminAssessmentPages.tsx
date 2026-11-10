@@ -101,12 +101,13 @@ export function AdminAssignmentsPage() {
     if (!formTitle || !formCourseId) { toast.error('Title and course required'); return; }
     setSaving(true);
     try {
+      const fileTypes = formFileTypes ? formFileTypes.split(',').map(s => s.trim()).filter(Boolean) : [];
       await AssessmentService.createAssignment({
         title: formTitle, description: formDesc || null, instructions: formInstructions || null,
         course_id: formCourseId, module_id: formModuleId || null,
         due_date: formDueDate || null, max_score: Number(formMaxScore),
-        allowed_file_types: formFileTypes.split(',').map(s => s.trim()),
-        max_file_size_mb: Number(formMaxSize), submission_requirements: formRequirements || null,
+        allowed_file_types: fileTypes,
+        max_file_size_mb: Number(formMaxSize) || null, submission_requirements: formRequirements || null,
       });
       toast.success('Assignment created');
       setCreateOpen(false);
