@@ -39,6 +39,7 @@ function statusBadge(status: string) {
 export function AdminAssignmentsPage() {
   const [assignments, setAssignments] = useState<any[]>([]);
   const [courses, setCourses] = useState<CourseRow[]>([]);
+  const [modules, setModules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterCourse, setFilterCourse] = useState('all');
   const [search, setSearch] = useState('');
@@ -84,6 +85,19 @@ export function AdminAssignmentsPage() {
     load();
   }, []);
 
+  // Load modules when course is selected
+  useEffect(() => {
+    async function loadModules() {
+      if (!formCourseId) {
+        setModules([]);
+        return;
+      }
+      const { data } = await supabase.from('modules').select('*').eq('course_id', formCourseId).order('sort_order');
+      setModules(data || []);
+    }
+    loadModules();
+  }, [formCourseId]);
+
   const filtered = assignments.filter(a => {
     const matchCourse = filterCourse === 'all' || a.course_id === filterCourse;
     const matchSearch = !search || a.title.toLowerCase().includes(search.toLowerCase());
@@ -95,12 +109,11 @@ export function AdminAssignmentsPage() {
     setFormCourseId(''); setFormModuleId(''); setFormDueDate('');
     setFormMaxScore('100'); setFormFileTypes('pdf,doc,docx,zip');
     setFormMaxSize('10'); setFormRequirements('');
+    setModules([]);
   };
 
   const handleCreate = async () => {
     if (!formTitle || !formCourseId) { toast.error('Title and course required'); return; }
-    console.log('[handleCreate] formCourseId:', formCourseId, 'type:', typeof formCourseId);
-    console.log('[handleCreate] courses:', courses);
     setSaving(true);
     try {
       const fileTypes = formFileTypes ? formFileTypes.split(',').map(s => s.trim()).filter(Boolean) : [];
@@ -189,7 +202,7 @@ export function AdminAssignmentsPage() {
               </div>
               <div>
                 <Label>Course *</Label>
-                <Select value={formCourseId} onValueChange={setFormCourseId}>
+                <Select value={formCourseId} onValueChange={(v) => { setFormCourseId(v); setFormModuleId(''); }}>
                   <SelectTrigger><SelectValue placeholder="Select course" /></SelectTrigger>
                   <SelectContent>
                     {courses.map(c => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}
@@ -198,7 +211,13 @@ export function AdminAssignmentsPage() {
               </div>
               <div>
                 <Label>Module (optional)</Label>
-                <Input value={formModuleId} onChange={e => setFormModuleId(e.target.value)} placeholder="Module ID" />
+                <Select value={formModuleId} onValueChange={setFormModuleId}>
+                  <SelectTrigger><SelectValue placeholder="Select module (optional)" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
+                    {modules.map(m => <SelectItem key={m.id} value={m.id}>{m.title}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label>Description</Label>
