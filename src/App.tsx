@@ -26,6 +26,7 @@ const StudentDashboard = lazy(() => import('@/pages/StudentDashboardPage').then(
 const StudentCoursesPage = lazy(() => import('@/pages/StudentDashboardPage').then((m) => ({ default: m.StudentCoursesPage })));
 const StudentLessonPage = lazy(() => import('@/pages/StudentLessonPage').then((m) => ({ default: m.StudentLessonPage })));
 const StudentAssignmentsPage = lazy(() => import('@/pages/StudentPages').then((m) => ({ default: m.StudentAssignmentsPage })));
+const StudentAssignmentDetailPage = lazy(() => import('@/pages/StudentPages').then((m) => ({ default: m.StudentAssignmentDetailPage })));
 const StudentQuizzesPage = lazy(() => import('@/pages/StudentPages').then((m) => ({ default: m.StudentQuizzesPage })));
 const StudentResultsPage = lazy(() => import('@/pages/StudentPages').then((m) => ({ default: m.StudentResultsPage })));
 const StudentCertificatesPage = lazy(() => import('@/pages/StudentPages').then((m) => ({ default: m.StudentCertificatesPage })));
@@ -122,7 +123,7 @@ function AppRoutes() {
         <Route path="courses" element={<StudentCoursesPage />} />
         <Route path="courses/:courseId/lessons" element={<StudentLessonPage />} />
         <Route path="assignments" element={<StudentAssignmentsPage />} />
-        <Route path="assignments/:assignmentId" element={<StudentAssignmentsPage />} />
+        <Route path="assignments/:assignmentId" element={<StudentAssignmentDetailPage />} />
         <Route path="quizzes" element={<StudentQuizzesPage />} />
         <Route path="quizzes/:quizId/take" element={<StudentQuizRunner />} />
         <Route path="quizzes/:quizId/result" element={<StudentResultsPage />} />

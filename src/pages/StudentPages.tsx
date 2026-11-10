@@ -5,13 +5,15 @@ import {
   Certificate, FilePdf, Download, ListDashes, Spinner, Lock,
   ClipboardText, Exam, TrendUp, Bell, UserCircle, GearSix, Pencil,
   Phone, Envelope, Key, Eye, EyeSlash, ChatCenteredText, ShieldCheck,
-  MagnifyingGlass, DotsThreeVertical, SignOut, XCircle,
+  MagnifyingGlass, DotsThreeVertical, SignOut, XCircle, PaperPlaneTilt,
 } from '@phosphor-icons/react';
 import { ROUTES } from '@/constants/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -134,27 +136,156 @@ export function StudentAssignmentsPage() {
       ) : (
         <div className="space-y-3">
           {assignments.map((a) => (
-            <Card key={a.id} className="border-zinc-200 dark:border-zinc-800">
-              <CardContent className="p-4 flex items-center gap-4">
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-                  a.status === 'graded' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30' :
-                  a.status === 'submitted' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30' :
-                  'bg-amber-100 text-amber-600 dark:bg-amber-900/30'}`}>
-                  <ClipboardText size={20} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-medium text-sm text-zinc-900 dark:text-white">{a.title}</h3>
-                  <p className="text-xs text-zinc-500">{a.lesson_title}</p>
-                </div>
-                <div className="text-right shrink-0">
-                  {a.score !== null && <p className="text-sm font-bold text-zinc-900 dark:text-white">{a.score}/{a.max_score ?? '?'}</p>}
-                  <Badge variant="secondary" className="text-xs capitalize">{a.status}</Badge>
-                </div>
-                <span className="text-xs text-zinc-400 shrink-0">{a.due_date ? new Date(a.due_date).toLocaleDateString() : 'No deadline'}</span>
-              </CardContent>
-            </Card>
+            <Link key={a.id} to={`/student/assignments/${a.id}`}>
+              <Card className="border-zinc-200 dark:border-zinc-800 hover:border-emerald-300 dark:hover:border-emerald-700 hover:shadow-md transition-all cursor-pointer">
+                <CardContent className="p-4 flex items-center gap-4">
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
+                    a.status === 'graded' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30' :
+                    a.status === 'submitted' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30' :
+                    'bg-amber-100 text-amber-600 dark:bg-amber-900/30'}`}>
+                    <ClipboardText size={20} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-medium text-sm text-zinc-900 dark:text-white">{a.title}</h3>
+                    <p className="text-xs text-zinc-500">{a.lesson_title}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    {a.score !== null && <p className="text-sm font-bold text-zinc-900 dark:text-white">{a.score}/{a.max_score ?? '?'}</p>}
+                    <Badge variant="secondary" className="text-xs capitalize">{a.status}</Badge>
+                  </div>
+                  <span className="text-xs text-zinc-400 shrink-0">{a.due_date ? new Date(a.due_date).toLocaleDateString() : 'No deadline'}</span>
+                  <ArrowRight size={16} className="text-zinc-400 shrink-0" />
+                </CardContent>
+              </Card>
+            </Link>
           ))}
         </div>
+      )}
+    </motion.div>
+  );
+}
+
+/* ─── Assignment Detail/Submission Page ─── */
+export function StudentAssignmentDetailPage() {
+  const { assignmentId } = useParams<{ assignmentId: string }>();
+  const [assignment, setAssignment] = useState<any>(null);
+  const [submission, setSubmission] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [content, setContent] = useState('');
+  const [fileUrls, setFileUrls] = useState<string[]>([]);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user || !assignmentId) { setLoading(false); return; }
+
+        const { data: assignData } = await supabase.from('assignments').select('*, lessons:lesson_id(title)').eq('id', assignmentId).single();
+        if (assignData) setAssignment(assignData);
+
+        const { data: subData } = await supabase.from('assignment_submissions').select('*').eq('assignment_id', assignmentId).eq('user_id', user.id).single();
+        if (subData) {
+          setSubmission(subData);
+          setContent(subData.content || '');
+          setFileUrls(subData.file_urls || []);
+        }
+      } catch (err: any) { toast.error(err.message || 'Failed to load assignment'); }
+      finally { setLoading(false); }
+    }
+    load();
+  }, [assignmentId]);
+
+  const handleSubmit = async () => {
+    if (!assignment) return;
+    setSubmitting(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase.from('assignment_submissions').upsert({
+        assignment_id: assignment.id,
+        user_id: user.id,
+        content: content || null,
+        file_urls: fileUrls,
+        status: 'submitted',
+        submitted_at: new Date().toISOString(),
+      });
+
+      if (error) throw error;
+      toast.success('Assignment submitted successfully');
+      window.location.reload();
+    } catch (err: any) { toast.error(err.message || 'Failed to submit'); }
+    finally { setSubmitting(false); }
+  };
+
+  if (loading) return <div className="p-8"><Spinner size={32} className="animate-spin text-emerald-500 mx-auto" /></div>;
+  if (!assignment) return <div className="p-8 text-center text-zinc-500">Assignment not found</div>;
+
+  const isSubmitted = submission?.status === 'submitted' || submission?.status === 'graded';
+
+  return (
+    <motion.div initial="hidden" animate="visible" className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Link to={ROUTES.studentAssignments} className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400">
+          <ArrowLeft size={20} />
+        </Link>
+        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">{assignment.title}</h1>
+      </div>
+
+      <Card className="border-zinc-200 dark:border-zinc-800">
+        <CardHeader>
+          <CardTitle className="text-base">Assignment Details</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {assignment.description && <p className="text-sm text-zinc-600 dark:text-zinc-400">{assignment.description}</p>}
+          {assignment.instructions && (
+            <div className="p-4 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
+              <p className="text-sm font-medium text-zinc-900 dark:text-white mb-2">Instructions</p>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap">{assignment.instructions}</p>
+            </div>
+          )}
+          <div className="flex items-center gap-4 text-sm text-zinc-500">
+            <span className="flex items-center gap-1"><Clock size={14} /> Due: {assignment.due_date ? new Date(assignment.due_date).toLocaleDateString() : 'No deadline'}</span>
+            <span className="flex items-center gap-1"><Trophy size={14} /> Max Score: {assignment.max_score}</span>
+          </div>
+          {isSubmitted && (
+            <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg">
+              <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300 mb-1">Submitted</p>
+              <p className="text-xs text-emerald-600 dark:text-emerald-400">{submission.submitted_at ? new Date(submission.submitted_at).toLocaleString() : ''}</p>
+              {submission.score !== null && <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300 mt-2">Score: {submission.score}/{assignment.max_score}</p>}
+              {submission.feedback && <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-2">Feedback: {submission.feedback}</p>}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {!isSubmitted && (
+        <Card className="border-zinc-200 dark:border-zinc-800">
+          <CardHeader>
+            <CardTitle className="text-base">Submit Assignment</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label>Content (optional)</Label>
+              <Textarea
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder="Write your response here..."
+                rows={6}
+                className="resize-none"
+              />
+            </div>
+            <Button
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+            >
+              {submitting ? <Spinner size={16} className="animate-spin" /> : <PaperPlaneTilt size={16} />}
+              Submit Assignment
+            </Button>
+          </CardContent>
+        </Card>
       )}
     </motion.div>
   );
