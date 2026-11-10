@@ -214,7 +214,6 @@ export function AdminAssignmentsPage() {
                 <Select value={formModuleId} onValueChange={setFormModuleId}>
                   <SelectTrigger><SelectValue placeholder="Select module (optional)" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
                     {modules.map(m => <SelectItem key={m.id} value={m.id}>{m.title}</SelectItem>)}
                   </SelectContent>
                 </Select>
