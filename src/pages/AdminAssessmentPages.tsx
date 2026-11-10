@@ -4,7 +4,8 @@ import {
   ClipboardText, Plus, Pencil, Trash, Eye, Download,
   CheckCircle, XCircle, Clock, WarningCircle, ArrowRight,
   MagnifyingGlass, FunnelSimple, GraduationCap, BookOpen,
-  NotePencil, Spinner, UploadSimple, PaperPlaneTilt, ProhibitInset
+  NotePencil, Spinner, UploadSimple, PaperPlaneTilt, ProhibitInset,
+  User,
 } from '@phosphor-icons/react';
 import { ROUTES } from '@/constants/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -40,11 +41,14 @@ export function AdminAssignmentsPage() {
   const [assignments, setAssignments] = useState<any[]>([]);
   const [courses, setCourses] = useState<CourseRow[]>([]);
   const [modules, setModules] = useState<any[]>([]);
+  const [submissions, setSubmissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterCourse, setFilterCourse] = useState('all');
   const [search, setSearch] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
+  const [submissionsOpen, setSubmissionsOpen] = useState(false);
   const [gradingOpen, setGradingOpen] = useState(false);
+  const [selectedAssignment, setSelectedAssignment] = useState<any>(null);
   const [selectedSubmission, setSelectedSubmission] = useState<any>(null);
   const [submissionFileUrls, setSubmissionFileUrls] = useState<string[]>([]);
   const [gradeScore, setGradeScore] = useState('');
@@ -132,18 +136,25 @@ export function AdminAssignmentsPage() {
     finally { setSaving(false); }
   };
 
+  const openSubmissions = async (assignment: any) => {
+    setSelectedAssignment(assignment);
+    try {
+      const { data } = await supabase
+        .from('assignment_submissions')
+        .select('*, profiles(full_name, email), assignments(title, max_score)')
+        .eq('assignment_id', assignment.id);
+      setSubmissions(data || []);
+      setSubmissionsOpen(true);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to load submissions');
+    }
+  };
+
   const openGrader = async (sub: any) => {
     setSelectedSubmission(sub);
     setGradeScore(String(sub.score ?? ''));
     setGradeFeedback(sub.feedback || '');
-    try {
-      setSubmissionFileUrls(await Promise.all(
-        (sub.file_urls || []).map((path: string) => AssessmentService.getSubmissionFileUrl(path)),
-      ));
-    } catch (err: any) {
-      setSubmissionFileUrls([]);
-      toast.error(err.message || 'Could not load submission attachments');
-    }
+    setSubmissionFileUrls([]);
     setGradingOpen(true);
   };
 
@@ -291,10 +302,13 @@ export function AdminAssignmentsPage() {
                   <h3 className="font-medium text-sm text-zinc-900 dark:text-white truncate">{a.title}</h3>
                   <p className="text-xs text-zinc-500">{a.course?.title || 'Unknown course'}</p>
                 </div>
-                <div className="text-right shrink-0 space-x-2">
-                  {a.due_date && <span className="text-xs text-zinc-400 mr-2">{new Date(a.due_date).toLocaleDateString()}</span>}
-                  <span className="text-xs text-zinc-400 mr-2">/{a.max_score ?? '?'} pts</span>
-                  <button onClick={() => handleDelete(a.id)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-zinc-400 hover:text-red-600 transition-colors">
+                <div className="text-right shrink-0 flex items-center gap-2">
+                  {a.due_date && <span className="text-xs text-zinc-400">{new Date(a.due_date).toLocaleDateString()}</span>}
+                  <span className="text-xs text-zinc-400">/{a.max_score ?? '?'} pts</span>
+                  <button onClick={() => openSubmissions(a)} className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-zinc-400 hover:text-blue-600 transition-colors" title="View submissions">
+                    <Eye size={16} />
+                  </button>
+                  <button onClick={() => handleDelete(a.id)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-zinc-400 hover:text-red-600 transition-colors" title="Delete">
                     <Trash size={16} />
                   </button>
                 </div>
@@ -304,6 +318,54 @@ export function AdminAssignmentsPage() {
         </div>
       )}
 
+      {/* Submissions Modal */}
+      <Dialog open={submissionsOpen} onOpenChange={setSubmissionsOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Submissions - {selectedAssignment?.title}</DialogTitle>
+            <DialogDescription>{submissions.length} submission(s)</DialogDescription>
+          </DialogHeader>
+          {submissions.length === 0 ? (
+            <div className="p-8 text-center text-zinc-500">No submissions yet</div>
+          ) : (
+            <div className="space-y-3 py-2">
+              {submissions.map((sub: any) => (
+                <Card key={sub.id} className="border-zinc-200 dark:border-zinc-800">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600 font-bold">
+                          {(sub.profiles?.full_name || sub.user_id)[0]?.toUpperCase() || '?'}
+                        </div>
+                        <div>
+                          <p className="font-medium text-sm text-zinc-900 dark:text-white">{sub.profiles?.full_name || 'Student'}</p>
+                          <p className="text-xs text-zinc-500">{sub.profiles?.email || ''}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {sub.score !== null && <p className="text-sm font-bold text-zinc-900 dark:text-white">{sub.score}/{sub.assignments?.max_score ?? '?'}</p>}
+                        {statusBadge(sub.status)}
+                        <Button onClick={() => { setSubmissionsOpen(false); openGrader(sub); }} size="sm" variant="outline" className="gap-1">
+                          <Pencil size={14} /> Grade
+                        </Button>
+                      </div>
+                    </div>
+                    {sub.content && (
+                      <div className="mt-3 p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg text-sm text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap max-h-32 overflow-y-auto">
+                        {sub.content}
+                      </div>
+                    )}
+                    <div className="mt-2 text-xs text-zinc-400">
+                      Submitted: {sub.submitted_at ? new Date(sub.submitted_at).toLocaleString() : ''}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Grading Modal */}
       <Dialog open={gradingOpen} onOpenChange={setGradingOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
@@ -312,11 +374,11 @@ export function AdminAssignmentsPage() {
             <div className="space-y-4 py-2">
               <div className="flex items-center gap-3 p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
                 <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600 font-bold">
-                  {(selectedSubmission.user?.full_name || selectedSubmission.user_id)[0]?.toUpperCase() || '?'}
+                  <User size={20} />
                 </div>
                 <div>
-                  <p className="font-medium text-sm text-zinc-900 dark:text-white">{selectedSubmission.user?.full_name || 'Student'}</p>
-                  <p className="text-xs text-zinc-500">{selectedSubmission.assignment?.title}</p>
+                  <p className="font-medium text-sm text-zinc-900 dark:text-white">{selectedSubmission.profiles?.full_name || 'Student'}</p>
+                  <p className="text-xs text-zinc-500">{selectedSubmission.profiles?.email || ''}</p>
                 </div>
                 <div className="ml-auto">{statusBadge(selectedSubmission.status)}</div>
               </div>
@@ -346,9 +408,9 @@ export function AdminAssignmentsPage() {
               )}
 
               <div>
-                <Label>Score (out of {selectedSubmission.assignment?.max_score ?? '?'})</Label>
+                <Label>Score (out of {selectedSubmission.assignments?.max_score ?? '?'})</Label>
                 <Input type="number" value={gradeScore} onChange={e => setGradeScore(e.target.value)}
-                  placeholder={`0-${selectedSubmission.assignment?.max_score}`} min={0} max={selectedSubmission.assignment?.max_score} />
+                  placeholder={`0-${selectedSubmission.assignments?.max_score}`} min={0} max={selectedSubmission.assignments?.max_score} />
               </div>
               <div>
                 <Label>Feedback</Label>
