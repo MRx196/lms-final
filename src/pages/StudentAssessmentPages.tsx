@@ -230,6 +230,7 @@ export function StudentAssignmentsPage() {
 /* ─── Student Quizzes Page ─── */
 export function StudentQuizzesPage() {
   const [quizzes, setQuizzes] = useState<any[]>([]);
+  const [completedQuizzes, setCompletedQuizzes] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -240,8 +241,20 @@ export function StudentQuizzesPage() {
         const { data: enrollData } = await supabase.from('enrollments').select('course_id').eq('user_id', user.id);
         const courseIds = (enrollData || []).map((e: any) => e.course_id);
         if (courseIds.length === 0) { setLoading(false); return; }
-        const { data } = await supabase.from('quizzes').select('*, course:courses(title)').in('course_id', courseIds).order('sort_order', { ascending: true });
+        const { data } = await supabase.from('quizzes').select('*, course:courses(title)').in('course_id', courseIds).is('deleted_at', null).order('sort_order', { ascending: true });
         if (data) setQuizzes(data as any[]);
+        
+        // Get completed quiz attempts
+        const { data: attempts } = await supabase
+          .from('quiz_attempts')
+          .select('quiz_id')
+          .eq('user_id', user.id)
+          .not('completed_at', 'is', null);
+        
+        if (attempts) {
+          const completedIds = new Set(attempts.map((a: any) => a.quiz_id));
+          setCompletedQuizzes(completedIds);
+        }
       } catch (err: any) { toast.error(err.message || 'Failed to load quizzes'); }
       finally { setLoading(false); }
     }
@@ -280,11 +293,17 @@ export function StudentQuizzesPage() {
                   <span>Pass: {q.passing_score ?? 70}%</span>
                   <span>Attempts: {q.max_attempts ?? 3}</span>
                 </div>
-                <Link to={`/student/quizzes/${q.id}`} className="block">
-                  <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
-                    Start Quiz <ArrowRight size={16} />
+                {completedQuizzes.has(q.id) ? (
+                  <Button disabled className="w-full bg-zinc-300 text-zinc-600 cursor-not-allowed">
+                    Submitted
                   </Button>
-                </Link>
+                ) : (
+                  <Link to={`/student/quizzes/${q.id}/take`} className="block">
+                    <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
+                      Start Quiz
+                    </Button>
+                  </Link>
+                )}
               </CardContent>
             </Card>
           ))}
@@ -301,6 +320,11 @@ export function StudentQuizRunner() {
   const [quiz, setQuiz] = useState<QuizRow | null>(null);
   const [questions, setQuestions] = useState<QuizQuestionRow[]>([]);
   const [answers, setAnswers] = useState<Record<string, string | null>>({});
+  const answersRef = useRef(answers);
+
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
   const [currentQ, setCurrentQ] = useState(0);
   const [timeLeft, setTimeLeft] = useState(0);
   const [started, setStarted] = useState(false);
@@ -309,16 +333,39 @@ export function StudentQuizRunner() {
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     async function load() {
       if (!quizId) return;
       try {
-        const q = await supabase.from('quizzes').select('*').eq('id', quizId).single();
+        const q = await supabase.from('quizzes').select('*').eq('id', quizId).is('deleted_at', null).single();
         if (q.data) setQuiz(q.data as QuizRow);
         const qs = await AssessmentService.getQuizQuestions(quizId);
         setQuestions(qs);
-      } catch (err: any) { toast.error(err.message || 'Failed to load quiz'); }
+        
+        // Auto-start quiz when loaded
+        if (q.data && qs.length > 0 && !q.data.deleted_at) {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            const count = await AssessmentService.getAttemptCount(quizId, user.id);
+            const maxAttempts = q.data.max_attempts ?? 3;
+            
+            if (count < maxAttempts) {
+              // Create new attempt
+              const attempt = await AssessmentService.createAttempt(quizId);
+              setAttemptId(attempt.id);
+              setTimeLeft(q.data.time_limit ? q.data.time_limit * 60 : 0);
+              setStarted(true);
+            } else {
+              // Max attempts reached, show error
+              toast.error('Maximum attempts reached');
+            }
+          }
+        }
+      } catch (err: any) { 
+        toast.error(err.message || 'Failed to load quiz'); 
+      }
       finally { setLoading(false); }
     }
     load();
@@ -329,7 +376,11 @@ export function StudentQuizRunner() {
     if (started && timeLeft > 0 && !completed) {
       timerRef.current = setInterval(() => {
         setTimeLeft(prev => {
-          if (prev <= 1) { autoSubmit(); return 0; }
+          if (prev <= 1) {
+            autoSubmit();
+            clearInterval(timerRef.current!);
+            return 0;
+          }
           return prev - 1;
         });
       }, 1000);
@@ -337,77 +388,38 @@ export function StudentQuizRunner() {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [started, completed]);
 
-  const startQuiz = async () => {
-    if (!quizId) return;
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const count = await AssessmentService.getAttemptCount(quizId, user.id);
-    if (count >= (quiz?.max_attempts ?? 3)) {
-      toast.error('Maximum attempts reached');
-      return;
-    }
-    const attempt = await AssessmentService.createAttempt(quizId);
-    setAttemptId(attempt.id);
-    setTimeLeft(quiz?.time_limit ? quiz.time_limit * 60 : 0);
-    setStarted(true);
-  };
-
-  const autoSubmit = () => {
-    submitQuiz();
-  };
-
-  const submitQuiz = async () => {
-    if (!attemptId || !questions.length) return;
+  const submitQuiz = async (submissionType: 'manual' | 'auto' = 'manual') => {
+    if (!attemptId || !questions.length || completed || submittingRef.current) return;
+    submittingRef.current = true;
+    const currentAnswers = answersRef.current;
     const answerRecords: Array<{ question_id: string; selected_option_id: string | null }> = [];
 
     for (const q of questions) {
-      const selectedOptId = answers[q.id];
-      answerRecords.push({ question_id: q.id, selected_option_id: selectedOptId });
+      const selectedOptId = currentAnswers[q.id];
+      const isValidUuid = selectedOptId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(selectedOptId);
+      answerRecords.push({ question_id: q.id, selected_option_id: isValidUuid ? selectedOptId : null });
     }
 
-    const submitted = await AssessmentService.submitAttempt(attemptId, answerRecords);
-    setResult({ score: submitted.score, total: submitted.total_points, passed: !!submitted.passed });
-    setCompleted(true);
+    try {
+      const submitted = await AssessmentService.submitAttempt(attemptId, answerRecords, submissionType);
+      setResult({ score: submitted.score, total: submitted.total_points, passed: !!submitted.passed });
+      setCompleted(true);
+      if (timerRef.current) clearInterval(timerRef.current);
+    } catch (err: any) {
+      if (err.message !== 'Attempt already submitted') {
+        toast.error(err.message || 'Failed to submit quiz');
+      }
+    } finally {
+      submittingRef.current = false;
+    }
+  };
+
+  const autoSubmit = () => {
+    submitQuiz('auto');
   };
 
   if (loading) return <div className="space-y-4">{[0,1,2].map(i => <div key={i} className="h-20 bg-zinc-100 dark:bg-zinc-800 rounded-xl animate-pulse" />)}</div>;
   if (!quiz || questions.length === 0) return <div className="text-center py-12"><WarningCircle size={48} className="mx-auto text-zinc-300 mb-4" /><p className="text-zinc-500">Quiz not found or has no questions.</p></div>;
-
-  if (!started) {
-    return (
-      <motion.div initial="hidden" animate="visible" className="max-w-2xl mx-auto space-y-6">
-        <Card className="border-zinc-200 dark:border-zinc-800">
-          <CardContent className="p-8 text-center">
-            <div className="w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mx-auto mb-4">
-              <ExamIcon size={32} className="text-blue-600" />
-            </div>
-            <h1 className="text-2xl font-bold text-zinc-900 dark:text-white mb-2">{quiz.title}</h1>
-            {quiz.description && <p className="text-sm text-zinc-500 mb-6">{quiz.description}</p>}
-            <div className="grid grid-cols-3 gap-4 mb-8">
-              <div className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
-                <Clock size={20} className="mx-auto text-zinc-400 mb-1" />
-                <p className="text-sm font-medium text-zinc-900 dark:text-white">{quiz.time_limit ?? '?'} min</p>
-                <p className="text-xs text-zinc-400">Time Limit</p>
-              </div>
-              <div className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
-                <FlagBanner size={20} className="mx-auto text-zinc-400 mb-1" />
-                <p className="text-sm font-medium text-zinc-900 dark:text-white">{questions.length}</p>
-                <p className="text-xs text-zinc-400">Questions</p>
-              </div>
-              <div className="p-3 bg-zinc-50 dark:bg-zinc-900 rounded-lg">
-                <Trophy size={20} className="mx-auto text-zinc-400 mb-1" />
-                <p className="text-sm font-medium text-zinc-900 dark:text-white">{quiz.passing_score ?? 70}%</p>
-                <p className="text-xs text-zinc-400">Pass Score</p>
-              </div>
-            </div>
-            <Button onClick={startQuiz} className="bg-emerald-600 hover:bg-emerald-700 text-white px-8 gap-2">
-              Start Quiz <ArrowRight size={16} />
-            </Button>
-          </CardContent>
-        </Card>
-      </motion.div>
-    );
-  }
 
   if (completed && result) {
     return (
@@ -426,7 +438,7 @@ export function StudentQuizRunner() {
             <div className="flex gap-3 justify-center">
               <Button onClick={() => navigate(ROUTES.studentQuizzes)} variant="outline" className="gap-2">Back to Quizzes</Button>
               {(!result.passed || (quiz.max_attempts ?? 3) > 1) && (
-                <Link to={`/student/quizzes/${quizId}`}>
+                <Link to={`/student/quizzes/${quizId}/take`}>
                   <Button className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">Try Again</Button>
                 </Link>
               )}
@@ -482,20 +494,21 @@ export function StudentQuizRunner() {
           </div>
           <h3 className="text-lg font-medium text-zinc-900 dark:text-white mb-6">{q.text}</h3>
 
+          {(q.options || []).length === 0 && (
+            <div className="text-red-500 text-sm mb-4">No options available for this question</div>
+          )}
+
           <div className="space-y-3">
-            {(q.type === 'true_false' ? [
-              { id: 'true', text: 'True', correct: false },
-              { id: 'false', text: 'False', correct: false },
-            ] : (q.options || [])).map((opt: any) => (
-              <button key={opt.id || opt.text} onClick={() => setAnswers({ ...answers, [q.id]: opt.id || opt.text })}
+            {(q.options || []).map((opt: any) => (
+              <button key={opt.id} onClick={() => setAnswers({ ...answers, [q.id]: opt.id })}
                 className={`w-full text-left p-4 rounded-lg border-2 transition-all ${
-                  answers[q.id] === (opt.id || opt.text)
+                  answers[q.id] === opt.id
                     ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-600'
                     : 'border-zinc-200 dark:border-zinc-700 hover:border-zinc-300 dark:hover:border-zinc-600'
                 }`}>
                 <div className="flex items-center gap-3">
                   <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
-                    answers[q.id] === (opt.id || opt.text) ? 'border-emerald-500 bg-emerald-500' : 'border-zinc-300 dark:border-zinc-600'
+                    answers[q.id] === opt.id ? 'border-emerald-500 bg-emerald-500' : 'border-zinc-300 dark:border-zinc-600'
                   }`}>
                     {answers[q.id] === (opt.id || opt.text) && <div className="w-2 h-2 rounded-full bg-white" />}
                   </div>
@@ -513,7 +526,7 @@ export function StudentQuizRunner() {
         {currentQ < questions.length - 1 ? (
           <Button onClick={() => setCurrentQ(currentQ + 1)} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">Next <ArrowRight size={16} /></Button>
         ) : (
-          <Button onClick={submitQuiz} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">Submit Quiz <CheckCircle size={16} /></Button>
+          <Button onClick={() => submitQuiz('manual')} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">Submit Quiz <CheckCircle size={16} /></Button>
         )}
       </div>
     </motion.div>
@@ -579,21 +592,26 @@ export function StudentResultsPage() {
         ) : (
           <div className="space-y-2">
             {attempts.slice(0, 10).map(a => (
-              <Card key={a.id} className="border-zinc-200 dark:border-zinc-800">
-                <CardContent className="p-3 flex items-center gap-4">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${a.passed ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30' : 'bg-red-100 text-red-600 dark:bg-red-900/30'}`}>
-                    {a.passed ? <Check size={16} weight="bold" /> : <XCircle size={16} weight="bold" />}
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-zinc-900 dark:text-white">{a.quiz?.title || 'Quiz'}</p>
-                    <p className="text-xs text-zinc-400">{a.completed_at ? new Date(a.completed_at).toLocaleDateString() : ''}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-zinc-900 dark:text-white">{a.total_points > 0 ? Math.round((a.score / a.total_points) * 100) : 0}%</p>
-                    <p className="text-xs text-zinc-400">{a.score}/{a.total_points}</p>
-                  </div>
-                </CardContent>
-              </Card>
+              <Link key={a.id} to={`/student/quiz-review/${a.id}`} className="block">
+                <Card className="border-zinc-200 dark:border-zinc-800 hover:border-emerald-300 dark:hover:border-emerald-700 transition-colors">
+                  <CardContent className="p-3 flex items-center gap-4">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${a.passed ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30' : 'bg-red-100 text-red-600 dark:bg-red-900/30'}`}>
+                      {a.passed ? <Check size={16} weight="bold" /> : <XCircle size={16} weight="bold" />}
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-zinc-900 dark:text-white">{a.quiz?.title || 'Quiz'}</p>
+                      <p className="text-xs text-zinc-400">
+                        {a.completed_at ? new Date(a.completed_at).toLocaleDateString() : ''}
+                        {a.submission_type && ` · ${a.submission_type}`}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-zinc-900 dark:text-white">{a.total_points > 0 ? Math.round((a.score / a.total_points) * 100) : 0}%</p>
+                      <p className="text-xs text-zinc-400">{a.score}/{a.total_points}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
             ))}
           </div>
         )}
@@ -625,6 +643,142 @@ export function StudentResultsPage() {
             ))}
           </div>
         )}
+      </div>
+    </motion.div>
+  );
+}
+
+/* ─── Quiz Review Page ─── */
+export function StudentQuizReviewPage() {
+  const { attemptId } = useParams<{ attemptId: string }>();
+  const navigate = useNavigate();
+  const [data, setData] = useState<{
+    attempt: QuizAttemptRow;
+    answers: QuizAnswerRow[];
+    quiz: any;
+    course: any;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      if (!attemptId) return;
+      try {
+        const result = await AssessmentService.getQuizAttemptDetails(attemptId);
+        setData(result);
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to load quiz review');
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [attemptId]);
+
+  if (loading) return <div className="space-y-4">{[0,1,2].map(i => <div key={i} className="h-20 bg-zinc-100 dark:bg-zinc-800 rounded-xl animate-pulse" />)}</div>;
+  if (!data) return <div className="text-center py-12"><WarningCircle size={48} className="mx-auto text-zinc-300 mb-4" /><p className="text-zinc-500">Quiz review not found.</p></div>;
+
+  const { attempt, answers, quiz, course } = data;
+  const percentage = attempt.total_points > 0 ? Math.round((attempt.score / attempt.total_points) * 100) : 0;
+
+  return (
+    <motion.div initial="hidden" animate="visible" className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <Link to={ROUTES.studentResults}><Button size="sm" variant="ghost" className="gap-1"><ArrowLeft size={14} /> Back to Results</Button></Link>
+        <div className={`flex items-center gap-2 px-4 py-2 rounded-lg ${attempt.passed ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
+          {attempt.passed ? <CheckCircle size={20} weight="bold" /> : <XCircle size={20} weight="bold" />}
+          <span className="font-semibold">{attempt.passed ? 'Passed' : 'Failed'}</span>
+        </div>
+      </div>
+
+      {/* Summary Card */}
+      <Card className="border-zinc-200 dark:border-zinc-800">
+        <CardContent className="p-6">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h1 className="text-2xl font-bold text-zinc-900 dark:text-white mb-2">
+                {quiz?.title || 'Quiz (Deleted)'}
+              </h1>
+              <p className="text-sm text-zinc-500">{course?.title || 'Course'}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-3xl font-bold text-zinc-900 dark:text-white">{percentage}%</p>
+              <p className="text-sm text-zinc-500">{attempt.score}/{attempt.total_points} points</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-zinc-200 dark:border-zinc-700">
+            <div>
+              <p className="text-xs text-zinc-500">Submission Date</p>
+              <p className="text-sm font-medium text-zinc-900 dark:text-white">
+                {attempt.completed_at ? new Date(attempt.completed_at).toLocaleDateString() : 'N/A'}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-zinc-500">Submission Type</p>
+              <p className="text-sm font-medium text-zinc-900 dark:text-white capitalize">
+                {attempt.submission_type || 'manual'}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-zinc-500">Total Questions</p>
+              <p className="text-sm font-medium text-zinc-900 dark:text-white">{answers.length}</p>
+            </div>
+            <div>
+              <p className="text-xs text-zinc-500">Passing Score</p>
+              <p className="text-sm font-medium text-zinc-900 dark:text-white">{quiz?.passing_score ?? 70}%</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Questions Review */}
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold text-zinc-900 dark:text-white">Question Review</h2>
+        {answers.map((answer, index) => (
+          <Card key={answer.id} className={`border-2 ${answer.is_correct ? 'border-emerald-200 dark:border-emerald-800' : 'border-red-200 dark:border-red-800'}`}>
+            <CardContent className="p-5">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-mono text-zinc-400">Q{index + 1}</span>
+                  <Badge variant="secondary" className="text-xs">{answer.question_points ?? 0} pts</Badge>
+                </div>
+                <div className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${answer.is_correct ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
+                  {answer.is_correct ? <CheckCircle size={14} weight="bold" /> : <XCircle size={14} weight="bold" />}
+                  {answer.is_correct ? 'Correct' : 'Incorrect'}
+                </div>
+              </div>
+              
+              <h3 className="text-base font-medium text-zinc-900 dark:text-white mb-4">
+                {answer.question_text || 'Question text unavailable'}
+              </h3>
+
+              <div className="space-y-2">
+                {/* Student's Answer */}
+                <div className={`p-3 rounded-lg border-2 ${answer.is_correct ? 'border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-700' : 'border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-700'}`}>
+                  <p className="text-xs font-medium text-zinc-500 mb-1">Your Answer:</p>
+                  <p className="text-sm text-zinc-900 dark:text-white">{answer.selected_option_text || 'No answer'}</p>
+                </div>
+
+                {/* Correct Answer (if incorrect) */}
+                {!answer.is_correct && answer.correct_option_text && (
+                  <div className="p-3 rounded-lg border-2 border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 dark:border-emerald-700">
+                    <p className="text-xs font-medium text-zinc-500 mb-1">Correct Answer:</p>
+                    <p className="text-sm text-zinc-900 dark:text-white">{answer.correct_option_text}</p>
+                  </div>
+                )}
+
+                {/* Points */}
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-zinc-500">Points earned:</span>
+                  <span className={`font-semibold ${answer.is_correct ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {answer.points_earned ?? 0}/{answer.question_points ?? 0}
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
     </motion.div>
   );

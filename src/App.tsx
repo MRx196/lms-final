@@ -27,8 +27,10 @@ const StudentCoursesPage = lazy(() => import('@/pages/StudentDashboardPage').the
 const StudentLessonPage = lazy(() => import('@/pages/StudentLessonPage').then((m) => ({ default: m.StudentLessonPage })));
 const StudentAssignmentsPage = lazy(() => import('@/pages/StudentPages').then((m) => ({ default: m.StudentAssignmentsPage })));
 const StudentAssignmentDetailPage = lazy(() => import('@/pages/StudentPages').then((m) => ({ default: m.StudentAssignmentDetailPage })));
-const StudentQuizzesPage = lazy(() => import('@/pages/StudentPages').then((m) => ({ default: m.StudentQuizzesPage })));
-const StudentResultsPage = lazy(() => import('@/pages/StudentPages').then((m) => ({ default: m.StudentResultsPage })));
+const StudentQuizzesPage = lazy(() => import('@/pages/StudentAssessmentPages').then((m) => ({ default: m.StudentQuizzesPage })));
+const StudentQuizRunner = lazy(() => import('@/pages/StudentAssessmentPages').then((m) => ({ default: m.StudentQuizRunner })));
+const StudentResultsPage = lazy(() => import('@/pages/StudentAssessmentPages').then((m) => ({ default: m.StudentResultsPage })));
+const StudentQuizReviewPage = lazy(() => import('@/pages/StudentAssessmentPages').then((m) => ({ default: m.StudentQuizReviewPage })));
 const StudentCertificatesPage = lazy(() => import('@/pages/StudentPages').then((m) => ({ default: m.StudentCertificatesPage })));
 const StudentNotificationsPage = lazy(() => import('@/pages/StudentPages').then((m) => ({ default: m.StudentNotificationsPage })));
 const StudentProfilePage = lazy(() => import('@/pages/StudentProfilePage'));
@@ -49,7 +51,6 @@ const CourseBuilderPage = lazy(() => import('@/pages/CourseBuilderPage').then((m
 const AdminAnnouncementsPage = lazy(() => import('@/pages/AdminAnnouncementsPage').then((m) => ({ default: m.AdminAnnouncementsPage })));
 const AdminAssignmentsPage = lazy(() => import('@/pages/AdminAssessmentPages').then((m) => ({ default: m.AdminAssignmentsPage })));
 const AdminQuizzesPage = lazy(() => import('@/pages/AdminAssessmentPages').then((m) => ({ default: m.AdminQuizzesPage })));
-const StudentQuizRunner = lazy(() => import('@/pages/StudentAssessmentPages').then((m) => ({ default: m.StudentQuizRunner })));
 const CertificateVerifyPage = lazy(() => import('@/pages/CertificatePages').then((m) => ({ default: m.CertificateVerifyPage })));
 const AdminCertificatesPage = lazy(() => import('@/pages/CertificatePages').then((m) => ({ default: m.AdminCertificatesPage })));
 const AdminAuditPage = lazy(() => import('@/pages/AdminAuditPage').then((m) => ({ default: m.AdminAuditPage })));
@@ -127,6 +128,7 @@ function AppRoutes() {
         <Route path="quizzes" element={<StudentQuizzesPage />} />
         <Route path="quizzes/:quizId/take" element={<StudentQuizRunner />} />
         <Route path="quizzes/:quizId/result" element={<StudentResultsPage />} />
+        <Route path="quiz-review/:attemptId" element={<StudentQuizReviewPage />} />
         <Route path="results" element={<StudentResultsPage />} />
         <Route path="certificates" element={<StudentCertificatesPage />} />
         <Route path="notifications" element={<StudentNotificationsPage />} />

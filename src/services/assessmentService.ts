@@ -46,6 +46,8 @@ export interface QuizRow {
   passing_score: number | null;
   max_attempts: number | null;
   sort_order: number | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -89,6 +91,11 @@ export interface QuizAnswerRow {
   selected_option_id: string | null;
   is_correct: boolean | null;
   points_earned: number | null;
+  question_text?: string | null;
+  question_points?: number | null;
+  selected_option_text?: string | null;
+  correct_option_text?: string | null;
+  correct_option_id?: string | null;
   created_at: string | null;
 }
 
@@ -320,6 +327,7 @@ export async function getQuizzes(courseId: string) {
     .from('quizzes')
     .select('*')
     .eq('course_id', courseId)
+    .is('deleted_at', null)
     .order('sort_order', { ascending: true });
   if (error) throw error;
   return data as QuizRow[];
@@ -329,6 +337,7 @@ export async function getAllQuizzes() {
   const { data, error } = await supabase
     .from('quizzes')
     .select('*, course:courses(title)')
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
   if (error) throw error;
   return data as any[];
@@ -356,7 +365,11 @@ export async function updateQuiz(id: string, data: Partial<QuizRow>) {
 }
 
 export async function deleteQuiz(id: string) {
-  const { error } = await supabase.from('quizzes').delete().eq('id', id);
+  // Soft delete - mark as deleted to preserve student history
+  const { error } = await supabase
+    .from('quizzes')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', id);
   if (error) throw error;
 }
 
@@ -458,6 +471,17 @@ export async function getAttemptCount(quizId: string, userId: string) {
   return count || 0;
 }
 
+export async function getStudentQuizAttempts(quizId: string, userId: string) {
+  const { data, error } = await supabase
+    .from('quiz_attempts')
+    .select('*')
+    .eq('quiz_id', quizId)
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data as QuizAttemptRow[];
+}
+
 export async function createAttempt(quizId: string) {
   const { data, error } = await supabase.rpc('start_quiz_attempt', {
     p_quiz_id: quizId,
@@ -469,10 +493,12 @@ export async function createAttempt(quizId: string) {
 export async function submitAttempt(
   attemptId: string,
   answers: Array<{ question_id: string; selected_option_id: string | null }>,
+  submissionType: 'manual' | 'auto' = 'manual',
 ) {
   const { data, error } = await supabase.rpc('submit_quiz_attempt', {
     p_attempt_id: attemptId,
     p_answers: answers,
+    p_submission_type: submissionType,
   });
   if (error) throw error;
   const result = data as QuizAttemptRow & { error?: string };
@@ -491,6 +517,48 @@ export async function getUserAttempts(quizId: string, userId: string) {
   return data as QuizAttemptRow[];
 }
 
+export async function getQuizAttemptDetails(attemptId: string) {
+  const { data: attempt, error: attemptError } = await supabase
+    .from('quiz_attempts')
+    .select('*')
+    .eq('id', attemptId)
+    .single();
+  if (attemptError) throw attemptError;
+
+  const { data: answers, error: answersError } = await supabase
+    .from('quiz_answers')
+    .select('*')
+    .eq('attempt_id', attemptId)
+    .order('created_at', { ascending: true });
+  if (answersError) throw answersError;
+
+  // Try to get quiz info (may be deleted)
+  let quiz = null;
+  try {
+    const { data: quizData } = await supabase
+      .from('quizzes')
+      .select('id, title, description, time_limit, passing_score, max_attempts, course_id, deleted_at')
+      .eq('id', attempt.quiz_id)
+      .single();
+    quiz = quizData;
+  } catch (e) {
+    // Quiz might be deleted, use attempt data
+  }
+
+  // Get course info
+  let course = null;
+  if (quiz?.course_id) {
+    const { data: courseData } = await supabase
+      .from('courses')
+      .select('id, title')
+      .eq('id', quiz.course_id)
+      .single();
+    course = courseData;
+  }
+
+  return { attempt, answers, quiz, course };
+}
+
 /* ─── Results / Grades ─── */
 
 export async function getStudentResults(userId: string) {
@@ -507,10 +575,11 @@ export async function getStudentResults(userId: string) {
     .from('quiz_attempts')
     .select(`
       *,
-      quiz:quizzes(title, course_id)
+      quiz:quizzes(title, course_id, deleted_at)
     `)
     .in('quiz.course_id', courseIds)
     .eq('user_id', userId)
+    .not('completed_at', 'is', null)
     .order('completed_at', { ascending: false });
   if (attError) throw attError;
 

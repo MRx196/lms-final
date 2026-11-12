@@ -488,12 +488,22 @@ export function AdminQuizzesPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [qData, cData] = await Promise.all([
-          AssessmentService.getAllQuizzes(),
-          supabase.from('courses').select('*').order('title'),
-        ]);
+        // Load only active quizzes (exclude soft-deleted)
+        const { data: qData, error: qError } = await supabase
+          .from('quizzes')
+          .select('*, course:courses(title)')
+          .is('deleted_at', null)
+          .order('created_at', { ascending: false });
+        if (qError) throw qError;
         setQuizzes(qData || []);
-        setCourses((cData.data || []) as CourseRow[]);
+        
+        const { data: cData, error: cError } = await supabase.from('courses').select('*').order('title');
+        if (cError) {
+          console.error('Error loading courses:', cError);
+          toast.error('Failed to load courses: ' + cError.message);
+        }
+        setCourses((cData || []) as CourseRow[]);
+        console.log('Courses loaded:', cData?.length || 0);
       } catch (err: any) { toast.error(err.message || 'Failed to load'); }
       finally { setLoading(false); }
     }
@@ -577,7 +587,7 @@ export function AdminQuizzesPage() {
               <CardContent className="p-5">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 dark:bg-blue-900/30 flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-blue-100 text-blue-600 dark:bg-blue-900/30">
                       <ExamIcon size={20} />
                     </div>
                     <div>
@@ -596,11 +606,15 @@ export function AdminQuizzesPage() {
                     <NotePencil size={14} /> Edit Questions
                   </Button>
                   <Button size="sm" variant="ghost" onClick={async () => {
-                    try { await AssessmentService.deleteQuiz(q.id); toast.success('Deleted'); window.location.reload(); }
-                    catch (err: any) { toast.error(err.message); }
-                  }} className="text-red-600 hover:text-red-700">
-                    <Trash size={14} />
-                  </Button>
+                      try {
+                        await AssessmentService.deleteQuiz(q.id);
+                        toast.success('Quiz deleted');
+                        window.location.reload();
+                      }
+                      catch (err: any) { toast.error(err.message); }
+                    }} className="text-red-600 hover:text-red-700">
+                      <Trash size={14} />
+                    </Button>
                 </div>
               </CardContent>
             </Card>
@@ -737,6 +751,14 @@ function QuizBuilder({ quiz, questions, setQuestions, onClose }: {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Save Quiz Button */}
+      <div className="pt-4 border-t border-zinc-200 dark:border-zinc-700">
+        <Button onClick={onClose} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
+          <Check size={16} weight="bold" /> Save Quiz
+        </Button>
+        <p className="text-xs text-zinc-500 text-center mt-2">This will save the quiz and make it available to students.</p>
       </div>
     </div>
   );

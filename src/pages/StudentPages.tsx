@@ -154,16 +154,16 @@ export function StudentAssignmentsPage() {
           <p className="text-sm text-zinc-500">Your instructors will post assignments here.</p>
         </CardContent></Card>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-5" style={{ marginBottom: '20px' }}>
           {assignments.map((a) => (
             <Link key={a.id} to={`/student/assignments/${a.id}`}>
-              <Card className={`border-zinc-200 dark:border-zinc-800 hover:border-emerald-300 dark:hover:border-emerald-700 hover:shadow-md transition-all cursor-pointer ${a.status === 'graded' ? 'border-emerald-300 dark:border-emerald-700' : ''}`}>
-                <CardContent className="p-4 flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
+              <Card className={`border-zinc-200 dark:border-zinc-800 hover:border-emerald-300 dark:hover:border-emerald-700 hover:shadow-md transition-all cursor-pointer ${a.status === 'graded' ? 'border-emerald-300 dark:border-emerald-700' : ''}`} style={{ marginBottom: '10px' }}>
+                <CardContent className="p-3 flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
                     a.status === 'graded' ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30' :
                     a.status === 'submitted' ? 'bg-blue-100 text-blue-600 dark:bg-blue-900/30' :
                     'bg-amber-100 text-amber-600 dark:bg-amber-900/30'}`}>
-                    {a.status === 'graded' ? <Check size={20} weight="bold" /> : <ClipboardText size={20} />}
+                    {a.status === 'graded' ? <Check size={18} weight="bold" /> : <ClipboardText size={18} />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-medium text-sm text-zinc-900 dark:text-white">{a.title}</h3>
@@ -178,7 +178,7 @@ export function StudentAssignmentsPage() {
                     <Badge variant="secondary" className={`text-xs capitalize ${a.status === 'graded' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30' : ''}`}>{a.status}</Badge>
                   </div>
                   <span className="text-xs text-zinc-400 shrink-0">{a.due_date ? new Date(a.due_date).toLocaleDateString() : 'No deadline'}</span>
-                  <ArrowRight size={16} className="text-zinc-400 shrink-0" />
+                  <ArrowRight size={15} className="text-zinc-400 shrink-0" />
                 </CardContent>
               </Card>
             </Link>
